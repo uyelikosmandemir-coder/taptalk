@@ -108,6 +108,39 @@ window.fbSendReport = async function(reportData) {
   await _db.collection('reports').add({ ...reportData, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
 };
 
+// ─── Bildirim gönder ───
+window.fbSendNotification = async function(toUserId, notifData) {
+  await _db.collection('notifications').add({
+    ...notifData,
+    toUserId,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+};
+
+// ─── Bildirimleri gerçek zamanlı dinle ───
+window.listenNotifications = function(userId) {
+  _db.collection('notifications')
+    .where('toUserId', '==', userId)
+    .where('read', '==', false)
+    .onSnapshot(function(snap) {
+      var count = snap.size;
+      // Badge güncelle
+      var badge = document.getElementById('notif-badge');
+      if (badge) { badge.style.display = count > 0 ? 'inline' : 'none'; badge.textContent = count; }
+      var mbadge = document.getElementById('bnav-req-badge');
+      if (mbadge) { mbadge.style.display = count > 0 ? 'block' : 'none'; mbadge.textContent = count; }
+      // Yeni bildirim geldi mi
+      snap.docChanges().forEach(function(change) {
+        if (change.type === 'added') {
+          var d = change.doc.data();
+          if (d.time && Date.now() - d.time < 5000) {
+            showNotif('🔔 ' + d.message, 'success');
+          }
+        }
+      });
+    });
+};
+
 // ─── Tüm verileri yükle + gerçek zamanlı dinle ───
 window.loadAllData = async function() {
   _db.collection('posts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
@@ -2319,6 +2352,9 @@ function launchApp() {
   renderFriendsStrip();
   updateRequestBadge();
 
+  // Gerçek zamanlı bildirimleri dinle
+  if (window.listenNotifications) window.listenNotifications(u.id);
+
   // Auto-verify at 100k followers
   checkAutoVerify(u);
 }
@@ -4112,19 +4148,25 @@ function renderFriendsPage() {
   var container = document.getElementById('friends-list');
   if (!container) return;
   if (friends.length === 0) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:40px">No friends yet. Search above to add!</p>';
+    container.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text3)"><div style="font-size:48px;margin-bottom:12px">👥</div><div style="font-size:16px;font-weight:600">No friends yet</div><div style="font-size:13px;margin-top:6px">Search above to add friends!</div></div>';
     return;
   }
-  container.innerHTML = friends.map(function(f) {
-    return '<div class="friend-card">' +
-      '<div class="avatar">' + f.name[0] + '</div>' +
-      '<div class="friend-card-info">' +
-        '<div class="friend-card-name">' + escHtml(f.name) + (f.verified ? ' <span class="verified-badge">✓</span>' : '') + '</div>' +
-        '<div class="friend-card-handle">@' + escHtml(f.username) + '</div>' +
-      '</div>' +
-      '<button class="btn-danger-small" onclick="removeFriend(' + f.id + ')">Remove</button>' +
+  container.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;padding:4px">' +
+    friends.map(function(f) {
+      var mutualCount = ((u.friends||[]).filter(function(id){ return (f.friends||[]).includes(id); })).length;
+      var verBadge = f.verified ? ' <span class="verified-badge">✓</span>' : '';
+      var roleBadge = f.role === 'admin' ? ' <span class="admin-badge">ADMIN</span>' : f.role === 'creator' ? ' <span class="admin-badge" style="background:var(--accent)">CREATOR</span>' : '';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;transition:box-shadow 0.2s" onmouseover="this.style.boxShadow=\'0 4px 20px rgba(0,0,0,0.08)\'" onmouseout="this.style.boxShadow=\'none\'">' +
+        '<div style="height:80px;background:' + (f.bannerColor || 'linear-gradient(135deg,var(--accent),var(--accent2))') + ';cursor:pointer" onclick="openUserProfile(\'' + f.id + '\')"></div>' +
+        '<div style="padding:0 14px 14px;margin-top:-28px">' +
+          '<div style="width:56px;height:56px;border-radius:50%;background:var(--accent);border:3px solid var(--surface);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:white;cursor:pointer;margin-bottom:8px" onclick="openUserProfile(\'' + f.id + '\')">' + f.name[0].toUpperCase() + '</div>' +
+          '<div style="font-size:14px;font-weight:700;color:var(--text);cursor:pointer" onclick="openUserProfile(\'' + f.id + '\')">' + escHtml(f.name) + verBadge + roleBadge + '</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin-top:2px">@' + escHtml(f.username) + '</div>' +
+          (mutualCount > 0 ? '<div style="font-size:11px;color:var(--text3);margin-top:4px;display:flex;align-items:center;gap:4px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' + mutualCount + ' mutual friend' + (mutualCount > 1 ? 's' : '') + '</div>' : '') +
+          '<button onclick="removeFriend(\'' + f.id + '\')" style="margin-top:10px;width:100%;padding:7px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer" onmouseover="this.style.background=\'var(--border)\'" onmouseout="this.style.background=\'var(--surface2)\'">Remove Friend</button>' +
+        '</div>' +
       '</div>';
-  }).join('');
+    }).join('') + '</div>';
 }
 
 function renderRequestsPage() {
@@ -4134,22 +4176,25 @@ function renderRequestsPage() {
   if (!container) return;
   updateRequestBadge();
   if (reqs.length === 0) {
-    container.innerHTML = '<p style="color:var(--text3);text-align:center;padding:40px">No pending friend requests.</p>';
+    container.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text3)"><div style="font-size:48px;margin-bottom:12px">📬</div><div style="font-size:16px;font-weight:600">No pending requests</div></div>';
     return;
   }
-  container.innerHTML = reqs.map(function(f) {
-    return '<div class="friend-card">' +
-      '<div class="avatar">' + f.name[0] + '</div>' +
-      '<div class="friend-card-info">' +
-        '<div class="friend-card-name">' + escHtml(f.name) + '</div>' +
-        '<div class="friend-card-handle">@' + escHtml(f.username) + ' wants to be your friend</div>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px">' +
-        '<button class="btn-accept" onclick="acceptRequest(' + f.id + ')">✓ Accept</button>' +
-        '<button class="btn-decline" onclick="declineRequest(' + f.id + ')">✕</button>' +
-      '</div>' +
+  container.innerHTML = '<div style="font-size:13px;font-weight:700;color:var(--text3);margin-bottom:12px">' + reqs.length + ' Friend Request' + (reqs.length > 1 ? 's' : '') + '</div>' +
+    reqs.map(function(f) {
+      var mutualCount = ((u.friends||[]).filter(function(id){ return (f.friends||[]).includes(id); })).length;
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:10px">' +
+        '<div style="width:52px;height:52px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:white;flex-shrink:0;cursor:pointer" onclick="openUserProfile(\'' + f.id + '\')">' + f.name[0].toUpperCase() + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:14px;font-weight:700;color:var(--text);cursor:pointer" onclick="openUserProfile(\'' + f.id + '\')">' + escHtml(f.name) + (f.verified ? ' <span class="verified-badge">✓</span>' : '') + '</div>' +
+          '<div style="font-size:12px;color:var(--text3)">@' + escHtml(f.username) + '</div>' +
+          (mutualCount > 0 ? '<div style="font-size:11px;color:var(--text3);margin-top:2px">' + mutualCount + ' mutual friend' + (mutualCount > 1 ? 's' : '') + '</div>' : '') +
+          '<div style="display:flex;gap:8px;margin-top:8px">' +
+            '<button onclick="acceptRequest(\'' + f.id + '\')" style="flex:1;padding:8px;background:var(--accent);border:none;border-radius:8px;font-size:13px;font-weight:700;color:white;cursor:pointer">Confirm</button>' +
+            '<button onclick="declineRequest(\'' + f.id + '\')" style="flex:1;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--text2);cursor:pointer">Delete</button>' +
+          '</div>' +
+        '</div>' +
       '</div>';
-  }).join('');
+    }).join('');
 }
 
 function updateRequestBadge() {
@@ -4198,22 +4243,33 @@ function searchUsers(query) {
   var results = state.users.filter(function(x) {
     return x.id !== u.id && !x.banned &&
       (x.name.toLowerCase().includes(q) || x.username.toLowerCase().includes(q));
-  }).slice(0, 5);
+  }).slice(0, 12);
   if (results.length === 0) { container.innerHTML='<p style="color:var(--text3);font-size:13px;padding:8px">No users found.</p>'; return; }
-  container.innerHTML = results.map(function(x) {
-    var isFriend = (u.friends||[]).includes(x.id);
-    var requested = (x.friendRequests||[]).includes(u.id);
-    var btn = isFriend
-      ? '<span style="font-size:12px;color:var(--success)">✓ Friends</span>'
-      : requested
-        ? '<span style="font-size:12px;color:var(--text3)">Requested</span>'
-        : '<button class="follow-btn" onclick="sendFriendRequest(' + x.id + ')">+ Add</button>';
-    return '<div class="search-user-row">' +
-      '<div class="avatar" style="width:32px;height:32px;font-size:13px;cursor:pointer" onclick="openUserProfile(' + x.id + ')">' + x.name[0] + '</div>' +
-      '<div style="flex:1;cursor:pointer" onclick="openUserProfile(' + x.id + ')"><div style="font-size:13px;font-weight:600">' + escHtml(x.name) + '</div>' +
-      '<div style="font-size:11px;color:var(--text3)">@' + escHtml(x.username) + '</div></div>' +
-      btn + '</div>';
-  }).join('');
+
+  container.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;padding:4px">' +
+    results.map(function(x) {
+      var isFriend = (u.friends||[]).includes(x.id);
+      var requested = (x.friendRequests||[]).includes(u.id);
+      var mutualCount = ((u.friends||[]).filter(function(id){ return (x.friends||[]).includes(id); })).length;
+      var verBadge = x.verified ? ' <span class="verified-badge">✓</span>' : '';
+
+      var actionBtn = isFriend
+        ? '<button style="width:100%;padding:7px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer">✓ Friends</button>'
+        : requested
+          ? '<button style="width:100%;padding:7px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:12px;font-weight:600;color:var(--text3);cursor:default">Requested</button>'
+          : '<button onclick="sendFriendRequest(\'' + x.id + '\')" style="width:100%;padding:7px;background:var(--accent);border:none;border-radius:8px;font-size:12px;font-weight:700;color:white;cursor:pointer">+ Add Friend</button>';
+
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden" onmouseover="this.style.boxShadow=\'0 4px 20px rgba(0,0,0,0.08)\'" onmouseout="this.style.boxShadow=\'none\'">' +
+        '<div style="height:70px;background:linear-gradient(135deg,var(--accent),var(--accent2));cursor:pointer" onclick="openUserProfile(\'' + x.id + '\')"></div>' +
+        '<div style="padding:0 12px 12px;margin-top:-24px">' +
+          '<div style="width:48px;height:48px;border-radius:50%;background:var(--accent);border:3px solid var(--surface);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:white;cursor:pointer;margin-bottom:6px" onclick="openUserProfile(\'' + x.id + '\')">' + x.name[0].toUpperCase() + '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:var(--text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="openUserProfile(\'' + x.id + '\')">' + escHtml(x.name) + verBadge + '</div>' +
+          '<div style="font-size:11px;color:var(--text3)">@' + escHtml(x.username) + '</div>' +
+          (mutualCount > 0 ? '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + mutualCount + ' mutual friend' + (mutualCount > 1 ? 's' : '') + '</div>' : '') +
+          '<div style="margin-top:8px">' + actionBtn + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>';
 }
 
 function sendFriendRequest(toId) {
@@ -4223,8 +4279,26 @@ function sendFriendRequest(toId) {
   if ((target.friendRequests||[]).includes(u.id)) return;
   if (!target.friendRequests) target.friendRequests = [];
   target.friendRequests.push(u.id);
+
+  // Firebase'e bildirim kaydet
+  if (window.fbSendNotification) {
+    window.fbSendNotification(toId, {
+      type: 'friend_request',
+      fromId: u.id,
+      fromName: u.name,
+      fromUsername: u.username,
+      message: u.name + ' sent you a friend request',
+      time: Date.now(),
+      read: false
+    });
+  }
+
+  // Firebase'de target kullanıcının friendRequests'ini güncelle
+  if (window.fbUpdateUser) {
+    window.fbUpdateUser(toId, { friendRequests: target.friendRequests });
+  }
+
   showNotif('Friend request sent to @' + target.username + '!', 'success');
-  // Refresh search
   var q = document.getElementById('friends-search');
   if (q) searchUsers(q.value);
   updateRequestBadge();
@@ -4234,23 +4308,45 @@ function acceptRequest(fromId) {
   var u = state.currentUser;
   var from = state.users.find(function(x){ return x.id===fromId; });
   if (!from) return;
-  // Add to both friends lists
   if (!u.friends) u.friends = [];
   if (!from.friends) from.friends = [];
   if (!u.friends.includes(fromId)) u.friends.push(fromId);
   if (!from.friends.includes(u.id)) from.friends.push(u.id);
-  // Remove request
   u.friendRequests = (u.friendRequests||[]).filter(function(id){ return id!==fromId; });
+
+  // Firebase güncelle
+  if (window.fbUpdateUser) {
+    window.fbUpdateUser(u.id, { friends: u.friends, friendRequests: u.friendRequests });
+    window.fbUpdateUser(fromId, { friends: from.friends });
+  }
+
+  // Bildirim: isteği kabul ettik
+  if (window.fbSendNotification) {
+    window.fbSendNotification(fromId, {
+      type: 'friend_accept',
+      fromId: u.id,
+      fromName: u.name,
+      fromUsername: u.username,
+      message: u.name + ' accepted your friend request 🎉',
+      time: Date.now(),
+      read: false
+    });
+  }
+
   showNotif('You and @' + from.username + ' are now friends! 🎉', 'success');
   renderRequestsPage();
+  renderFriendsPage();
   renderFriendsStrip();
+  updateRequestBadge();
 }
 
 function declineRequest(fromId) {
   var u = state.currentUser;
   u.friendRequests = (u.friendRequests||[]).filter(function(id){ return id!==fromId; });
+  if (window.fbUpdateUser) window.fbUpdateUser(u.id, { friendRequests: u.friendRequests });
   showNotif('Request declined.', 'info');
   renderRequestsPage();
+  updateRequestBadge();
 }
 
 function removeFriend(friendId) {
@@ -4258,6 +4354,10 @@ function removeFriend(friendId) {
   var friend = state.users.find(function(x){ return x.id===friendId; });
   u.friends = (u.friends||[]).filter(function(id){ return id!==friendId; });
   if (friend) friend.friends = (friend.friends||[]).filter(function(id){ return id!==u.id; });
+  if (window.fbUpdateUser) {
+    window.fbUpdateUser(u.id, { friends: u.friends });
+    if (friend) window.fbUpdateUser(friendId, { friends: friend.friends });
+  }
   showNotif('Friend removed.', 'info');
   renderFriendsPage();
   renderFriendsStrip();
