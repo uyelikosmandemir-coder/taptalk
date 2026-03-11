@@ -10,7 +10,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
+// Firebase yüklendi mi kontrol et
+var _firebaseReady = typeof firebase !== 'undefined';
+
+if (_firebaseReady) {
 const firebaseConfig = {
   apiKey: "AIzaSyCm4LPUA2RFBVbeVMpYBkzXFuiXouH_RAs",
   authDomain: "taptalk-f5d85.firebaseapp.com",
@@ -105,28 +110,21 @@ window.fbSendReport = async function(reportData) {
 
 // ─── Tüm verileri yükle + gerçek zamanlı dinle ───
 window.loadAllData = async function() {
-  // Postları gerçek zamanlı dinle
   _db.collection('posts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.posts = [];
     snap.forEach(d => state.posts.push({ id: d.id, ...d.data() }));
     if (state.currentUser) renderFeed();
   });
-
-  // Text postları dinle
   _db.collection('textPosts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.textPosts = [];
     snap.forEach(d => state.textPosts.push({ id: d.id, ...d.data() }));
     if (state.currentUser) renderTextPosts();
   });
-
-  // Shorts'ları dinle
   _db.collection('shorts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.shorts = [];
     snap.forEach(d => state.shorts.push({ id: d.id, ...d.data() }));
     if (state.currentUser) renderShorts();
   });
-
-  // Kullanıcıları dinle
   _db.collection('users').onSnapshot(snap => {
     state.users = [];
     snap.forEach(d => state.users.push({ id: d.id, ...d.data() }));
@@ -155,6 +153,60 @@ _auth.onAuthStateChanged(async (firebaseUser) => {
 });
 
 console.log('✅ Firebase hazır!');
+
+} else {
+  // Firebase yüklenemedi — yerel mod (test/preview ortamı)
+  console.warn('⚠️ Firebase CDN yüklenemedi. Yerel test modu aktif.');
+
+  window.fbRegister = async function(email, password, username, name, dob) {
+    const uid = 'local_' + Date.now();
+    const newUser = {
+      id: uid, email, username, name: name || username, dob,
+      role: 'user', premium: false,
+      followers: 0, following: 0, videos: 0,
+      banned: false, tempBanned: false, verified: false,
+      friends: [], friendRequests: []
+    };
+    state.users.push(newUser);
+    state.currentUser = newUser;
+    return { ok: true };
+  };
+
+  window.fbLogin = async function(email, password) {
+    const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) return { ok: false, msg: 'Kullanıcı bulunamadı.' };
+    state.currentUser = user;
+    return { ok: true };
+  };
+
+  window.fbLogout = async function() {
+    state.currentUser = null;
+  };
+
+  window.fbPublishPost = async function(postData) {
+    const id = 'lp_' + Date.now();
+    state.posts.unshift({ ...postData, id });
+    return id;
+  };
+
+  window.fbPublishTextPost = async function(postData) {
+    const id = 'lt_' + Date.now();
+    state.textPosts.unshift({ ...postData, id });
+    return id;
+  };
+
+  window.fbPublishShort = async function(postData) {
+    const id = 'ls_' + Date.now();
+    state.shorts.unshift({ ...postData, id });
+    return id;
+  };
+
+  window.fbToggleLike = async function() {};
+  window.fbSendComment = async function() {};
+  window.fbUpdateUser = async function() {};
+  window.fbSendReport = async function() {};
+  window.loadAllData = async function() {};
+}
 </script>
 <style>
   :root {
@@ -428,15 +480,19 @@ console.log('✅ Firebase hazır!');
 
   #page-shorts { display: none; }
   #page-shorts.active {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: 500;
     background: #000;
   }
   #shorts-feed {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    position: relative;
+    /* 9:16 container — centered on desktop, full on mobile */
+    width: min(100vw, calc(100vh * 9/16));
+    height: 100vh;
     overflow-y: scroll;
     scroll-snap-type: y mandatory;
     -webkit-overflow-scrolling: touch;
@@ -444,6 +500,14 @@ console.log('✅ Firebase hazır!');
     -ms-overflow-style: none;
   }
   #shorts-feed::-webkit-scrollbar { display: none; }
+  /* Dark sides on desktop */
+  #page-shorts.active::before,
+  #page-shorts.active::after {
+    content: '';
+    flex: 1;
+    background: #000;
+    height: 100%;
+  }
   .short-card {
     height: 100vh; width: 100%;
     scroll-snap-align: start; scroll-snap-stop: always;
@@ -2578,6 +2642,38 @@ function getMediaDataUrl(inputId, callback) {
   var input = document.getElementById(inputId);
   if (!input || !input.files || !input.files[0]) { callback(null); return; }
   var file = input.files[0];
+
+  // Dosya boyutu kontrolü — max 50MB
+  if (file.size > 50 * 1024 * 1024) {
+    showNotif('❌ Dosya çok büyük! Max 50MB.', 'error');
+    callback(null); return;
+  }
+
+  // Firebase Storage varsa oraya yükle (gerçek URL)
+  if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+    try {
+      var storage = firebase.storage();
+      var storageRef = storage.ref('media/' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._]/g, '_'));
+      showNotif('⏫ Video yükleniyor...', 'info');
+      storageRef.put(file).then(function(snapshot) {
+        return snapshot.ref.getDownloadURL();
+      }).then(function(url) {
+        showNotif('✅ Video yüklendi!', 'success');
+        callback(url);
+      }).catch(function(err) {
+        console.warn('Storage hatası, base64 kullanılıyor:', err);
+        // Storage çalışmazsa base64 fallback (küçük dosyalar için)
+        var reader = new FileReader();
+        reader.onload = function(e) { callback(e.target.result); };
+        reader.readAsDataURL(file);
+      });
+      return;
+    } catch(e) {
+      console.warn('Storage yok, base64 kullanılıyor');
+    }
+  }
+
+  // Yerel mod — base64
   var reader = new FileReader();
   reader.onload = function(e) { callback(e.target.result); };
   reader.onerror = function() { callback(null); };
