@@ -1731,12 +1731,20 @@ console.log('✅ Firebase hazır!');
 
       <!-- GALLERY PAGE -->
       <div class="page" id="page-gallery">
-        <div class="feed-header">🎬 Watch History</div>
-        <p style="color:var(--text2);font-size:14px;margin-bottom:16px">Videos, Shorts, and Live streams you've watched.</p>
-        <div class="galley-grid" id="gallery-grid"></div>
-        <div style="margin-top:16px">
-          <button class="btn-small" style="background:var(--danger)" onclick="clearGallery()">Clear History</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div class="feed-header" style="margin-bottom:0">🎬 Watch History</div>
+          <button onclick="clearGallery()" style="background:none;border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--danger);cursor:pointer;font-weight:600;font-family:'DM Sans',sans-serif">🗑 Clear All</button>
         </div>
+        <p style="color:var(--text3);font-size:13px;margin-bottom:20px">Videos and Shorts you've watched</p>
+
+        <!-- Filter tabs -->
+        <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+          <button id="wh-tab-all" onclick="filterWatchHistory('all')" style="padding:7px 18px;border-radius:20px;border:none;background:var(--accent);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">All</button>
+          <button id="wh-tab-video" onclick="filterWatchHistory('video')" style="padding:7px 18px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📹 Videos</button>
+          <button id="wh-tab-short" onclick="filterWatchHistory('short')" style="padding:7px 18px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Shorts</button>
+        </div>
+
+        <div id="gallery-grid"></div>
       </div>
 
       <!-- ADMIN PAGE -->
@@ -3553,6 +3561,8 @@ function setupShortsAutoplay() {
           vid.play().catch(function(){ vid.muted = true; vid.play(); });
           // Oynatma ikonu: pause göster
           if (playIcon) playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+          // Watch history'e ekle
+          addToWatchHistory(String(sid), 'short');
         }
       } else {
         if (vid) {
@@ -3968,24 +3978,132 @@ function renderProfile() {
 // ═══════════════════════════════════════
 //  GALLERY
 // ═══════════════════════════════════════
+var _whFilter = 'all';
+
+function filterWatchHistory(type) {
+  _whFilter = type;
+  ['all','video','short'].forEach(t => {
+    const btn = document.getElementById('wh-tab-' + t);
+    if (!btn) return;
+    if (t === type) {
+      btn.style.background = 'var(--accent)';
+      btn.style.color = 'white';
+      btn.style.border = 'none';
+    } else {
+      btn.style.background = 'var(--surface2)';
+      btn.style.color = 'var(--text2)';
+      btn.style.border = '1px solid var(--border)';
+    }
+  });
+  renderGallery();
+}
+
+function addToWatchHistory(postId, type) {
+  const u = state.currentUser;
+  if (!u) return;
+  if (!u.watchHistory) u.watchHistory = [];
+  // Zaten varsa başa taşı
+  u.watchHistory = u.watchHistory.filter(h => !(h.id === postId && h.type === type));
+  u.watchHistory.unshift({ id: postId, type: type, watchedAt: Date.now() });
+  // Max 100 item
+  if (u.watchHistory.length > 100) u.watchHistory = u.watchHistory.slice(0, 100);
+  // Firestore'a kaydet
+  try { _db.collection('users').doc(u.id).update({ watchHistory: u.watchHistory }); } catch(e){}
+}
+
 function renderGallery() {
   const container = document.getElementById('gallery-grid');
-  container.innerHTML = state.gallery.map(item => `
-    <div class="gallery-item" id="gi-${item.id}">
-      ${item.emoji}
-      <button class="gallery-del" onclick="deleteGalleryItem(${item.id})">✕</button>
-    </div>`).join('');
+  if (!container) return;
+  const u = state.currentUser;
+  const history = (u.watchHistory || []);
+
+  const filtered = _whFilter === 'all' ? history : history.filter(h => h.type === _whFilter);
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--text3)">
+      <div style="font-size:48px;margin-bottom:12px">👀</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nothing here yet</div>
+      <div style="font-size:13px">Videos and Shorts you watch will appear here</div>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => {
+    // Postu bul
+    const post = item.type === 'short'
+      ? state.shorts.find(s => String(s.id) === String(item.id))
+      : state.posts.find(p => String(p.id) === String(item.id));
+    if (!post) return '';
+
+    const author = state.users.find(u => u.id === post.authorId);
+    const authorName = author ? author.name : 'Unknown';
+    const authorInitial = authorName[0].toUpperCase();
+    const timeAgo = item.watchedAt ? formatTimeAgo(item.watchedAt) : 'Watched';
+    const typeLabel = item.type === 'short' ? '⚡ Short' : '📹 Video';
+    const typeColor = item.type === 'short' ? 'var(--accent2)' : 'var(--accent)';
+
+    const thumb = post.mediaData
+      ? (post.mediaType === 'image' || post.mediaData.startsWith('data:image')
+          ? `<img src="${post.mediaData}" style="width:100%;height:100%;object-fit:cover">`
+          : `<video src="${post.mediaData}" style="width:100%;height:100%;object-fit:cover" muted preload="metadata">`)
+      : `<div style="width:100%;height:100%;background:${post.gradient||'linear-gradient(135deg,var(--accent),var(--accent2))'};display:flex;align-items:center;justify-content:center;font-size:32px">▶</div>`;
+
+    const openFn = item.type === 'short' ? `showPage('shorts')` : `openVideoPlayer('${item.id}')`;
+
+    return `<div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="${openFn}">
+      <!-- Thumbnail -->
+      <div style="width:120px;height:72px;border-radius:10px;overflow:hidden;flex-shrink:0;background:#000;position:relative">
+        ${thumb}
+        <div style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.7);border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;color:white">${typeLabel}</div>
+      </div>
+      <!-- Info -->
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:14px;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${escHtml(post.title || post.caption || 'Untitled')}</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3)">
+          <div style="width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700">${authorInitial}</div>
+          ${escHtml(authorName)}
+          <span>·</span>
+          <span>${timeAgo}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">👁 ${formatNum(post.views||0)} views · ⭐ ${formatNum(post.likes||0)}</div>
+      </div>
+      <!-- Remove btn -->
+      <button onclick="event.stopPropagation();removeFromHistory('${item.id}','${item.type}')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:18px;padding:4px 8px;border-radius:8px;flex-shrink:0" title="Remove from history" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function removeFromHistory(id, type) {
+  const u = state.currentUser;
+  if (!u || !u.watchHistory) return;
+  u.watchHistory = u.watchHistory.filter(h => !(String(h.id) === String(id) && h.type === type));
+  try { _db.collection('users').doc(u.id).update({ watchHistory: u.watchHistory }); } catch(e){}
+  renderGallery();
 }
 
 function deleteGalleryItem(id) {
-  state.gallery = state.gallery.filter(g => g.id !== id);
-  renderGallery();
+  removeFromHistory(id, 'video');
 }
 
 function clearGallery() {
-  state.gallery = [];
+  const u = state.currentUser;
+  if (!u) return;
+  u.watchHistory = [];
+  try { _db.collection('users').doc(u.id).update({ watchHistory: [] }); } catch(e){}
   renderGallery();
-  showNotif('Gallery cleared.', 'info');
+  showNotif('Watch history cleared.', 'info');
+}
+
+function formatTimeAgo(ts) {
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'Just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  if (d < 7) return d + 'd ago';
+  return Math.floor(d/7) + 'w ago';
 }
 
 // ═══════════════════════════════════════
@@ -4791,6 +4909,9 @@ function openVideoPlayer(postId) {
   } else {
     post = state.posts.find(function(p){ return p.id === postId; });
   }
+
+  // Watch History'e ekle
+  if (post) addToWatchHistory(String(post.id), isShort ? 'short' : 'video');
 
   var modal = document.getElementById('video-player-modal');
   var content = document.getElementById('vp-content');
