@@ -146,7 +146,13 @@ window.loadAllData = async function() {
   _db.collection('posts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.posts = [];
     snap.forEach(d => state.posts.push({ id: d.id, ...d.data() }));
-    if (state.currentUser) renderFeed();
+    if (state.currentUser) {
+      renderFeed();
+      // Profil sayfası açıksa onu da güncelle
+      if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
+        renderProfile();
+      }
+    }
   });
   _db.collection('textPosts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.textPosts = [];
@@ -163,7 +169,13 @@ window.loadAllData = async function() {
     snap.forEach(d => state.users.push({ id: d.id, ...d.data() }));
     if (state.currentUser) {
       const me = state.users.find(u => u.id === state.currentUser.id);
-      if (me) Object.assign(state.currentUser, me);
+      if (me) {
+        Object.assign(state.currentUser, me);
+        // Profil sayfası açıksa güncelle
+        if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
+          renderProfile();
+        }
+      }
     }
   });
 };
@@ -1753,17 +1765,23 @@ console.log('✅ Firebase hazır!');
 </div>
 
 <!-- SHORTS COMMENTS MODAL -->
-<div class="modal-overlay" id="short-comments-modal" onclick="if(event.target===this)closeShortComments()">
-  <div style="position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-radius:24px 24px 0 0;max-height:85vh;min-height:50vh;display:flex;flex-direction:column;padding:0 0 16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px;border-bottom:1px solid var(--border)">
-      <div style="font-family:Syne,sans-serif;font-size:16px;font-weight:800">💬 Comments <span id="short-cmt-count" style="color:var(--text3);font-size:13px"></span></div>
-      <button onclick="closeShortComments()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
+<div id="short-comments-modal" onclick="if(event.target===this)closeShortComments()" style="position:fixed;inset:0;z-index:1000;display:none;align-items:stretch;justify-content:flex-end">
+  <!-- Karartma -->
+  <div onclick="closeShortComments()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px)"></div>
+  <!-- Sağ panel -->
+  <div style="position:relative;width:min(420px,100vw);background:var(--surface);display:flex;flex-direction:column;height:100vh;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1)" id="short-cmt-panel">
+    <!-- Başlık -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div style="font-family:Syne,sans-serif;font-size:17px;font-weight:800">💬 Comments <span id="short-cmt-count" style="color:var(--text3);font-size:13px;font-weight:400"></span></div>
+      <button onclick="closeShortComments()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
     </div>
-    <div id="short-comments-list" style="overflow-y:auto;flex:1;padding:12px 16px"></div>
-    <div style="padding:12px 16px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end">
-      <div class="avatar" id="short-cmt-avatar" style="width:32px;height:32px;font-size:13px;flex-shrink:0"></div>
-      <textarea id="short-cmt-input" class="form-input" placeholder="Add a comment..." rows="1" maxlength="200" style="resize:none;flex:1;padding:10px 14px;font-size:13px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';liveCheckInput(this,document.getElementById('short-cmt-send'))"></textarea>
-      <button id="short-cmt-send" onclick="sendShortComment()" style="background:var(--accent);border:none;border-radius:12px;padding:10px 16px;color:white;font-weight:700;cursor:pointer;font-size:13px;white-space:nowrap">Send</button>
+    <!-- Yorum listesi -->
+    <div id="short-comments-list" style="overflow-y:auto;flex:1;padding:14px 16px"></div>
+    <!-- Yorum yazma -->
+    <div style="padding:12px 16px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end;flex-shrink:0;background:var(--surface)">
+      <div class="avatar" id="short-cmt-avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0"></div>
+      <textarea id="short-cmt-input" class="form-input" placeholder="Yorum yaz..." rows="1" maxlength="300" style="resize:none;flex:1;padding:10px 14px;font-size:13px;border-radius:14px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendShortComment();}"></textarea>
+      <button onclick="sendShortComment()" style="background:var(--accent);border:none;border-radius:14px;padding:10px 18px;color:white;font-weight:700;cursor:pointer;font-size:13px;white-space:nowrap;height:42px">Gönder</button>
     </div>
   </div>
 </div>
@@ -2564,13 +2582,18 @@ function switchTab(name, el) {
 function renderFeed() {
   const u = state.currentUser;
   const container = document.getElementById('feed-list');
-  container.innerHTML = '';
+  if (!container) return;
 
+  const cards = [];
   state.posts.forEach(post => {
     const author = state.users.find(x => x.id === post.authorId);
     if (!author) return;
-    container.innerHTML += buildVideoCard(post, author);
+    cards.push(buildVideoCard(post, author));
   });
+
+  container.innerHTML = cards.length
+    ? cards.join('')
+    : '<div style="text-align:center;padding:60px 20px;color:var(--text3)"><div style="font-size:40px;margin-bottom:12px">📹</div><div style="font-size:16px;font-weight:600">Henüz video yok</div><div style="font-size:13px;margin-top:6px">İlk videoyu paylaş!</div></div>';
 }
 
 function buildVideoCard(post, author) {
@@ -2583,10 +2606,15 @@ function buildVideoCard(post, author) {
   const shareCount = post.shares || 0;
   const viewCount = post.views || 0;
 
+  const isVideo = post.mediaType === 'video' || 
+    (post.mediaData && (post.mediaData.startsWith('https://firebasestorage') || post.mediaData.startsWith('https://storage.googleapis')));
+  const isImage = post.mediaType === 'image' || 
+    (post.mediaData && post.mediaData.startsWith('data:image'));
+
   const thumbHtml = post.mediaData
-    ? (post.mediaType === 'video'
-        ? `<video class="video-thumb" src="${post.mediaData}" style="background:#000;object-fit:cover" controls></video>`
-        : `<img class="video-thumb" src="${post.mediaData}" style="object-fit:cover;cursor:pointer" onclick="openVideoPlayer('${post.id}')">`)
+    ? (isImage
+        ? `<img class="video-thumb" src="${post.mediaData}" style="object-fit:cover;cursor:pointer;width:100%" onclick="openVideoPlayer('${post.id}')">`
+        : `<video class="video-thumb" src="${post.mediaData}" style="background:#000;object-fit:cover;width:100%;cursor:pointer" controls preload="metadata" playsinline></video>`)
     : `<div class="video-thumb" style="background:${post.gradient};cursor:pointer" onclick="openVideoPlayer('${post.id}')"><div class="play-btn">▶</div></div>`;
 
   return `
@@ -2886,25 +2914,40 @@ function publishPost() {
   if (btn) { btn.disabled = true; btn.textContent = 'Yayınlanıyor...'; }
 
   getMediaDataUrl('video-file', function(mediaData) {
+    // Dosya tipini belirle
+    var fileInput = document.getElementById('video-file');
+    var fileType = null;
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+      fileType = fileInput.files[0].type.startsWith('image/') ? 'image' : 'video';
+    }
+
     const newPost = {
       authorId: u.id,
       type: 'video',
+      mediaType: fileType || 'video',
       title: text,
-      views: '0',
+      views: 0,
       likes: 0,
+      shares: 0,
       likedBy: {},
       comments: [],
       time: 'Just now',
       gradient: gradients[Math.floor(Math.random()*gradients.length)],
       mediaData: mediaData || null,
     };
-    window.fbPublishPost(newPost).then(() => {
+    window.fbPublishPost(newPost).then((newId) => {
       if (btn) { btn.disabled = false; btn.textContent = 'Publish'; }
       document.getElementById('post-text').value = '';
       clearMedia('video-preview-wrap','video-file','video-preview');
       showNotif('Yayınlandı! 🎉', 'success');
       window.fbUpdateUser(u.id, { videos: (u.videos || 0) + 1 });
       checkAutoVerify(u);
+      // Profil sayfasını hemen güncelle
+      if (newId) { newPost.id = newId; state.posts.unshift(newPost); }
+      renderFeed();
+      if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
+        renderProfile();
+      }
     });
   });
 }
@@ -3277,20 +3320,31 @@ function playShortCard(id, card) {
 }
 
 function openShortComments(shortId) {
-  const s = state.shorts.find(x => x.id === shortId);
+  const s = state.shorts.find(x => String(x.id) === String(shortId));
   if (!s) return;
   if (!s.comments) s.comments = [];
   const modal = document.getElementById('short-comments-modal');
-  modal.setAttribute('data-short-id', shortId);
-  document.getElementById('short-cmt-count').textContent = '(' + s.comments.length + ')';
-  document.getElementById('short-cmt-avatar').textContent = state.currentUser.name[0].toUpperCase();
-  document.getElementById('short-cmt-input').value = '';
+  const panel = document.getElementById('short-cmt-panel');
+  modal.setAttribute('data-short-id', String(shortId));
+  const cntEl = document.getElementById('short-cmt-count');
+  if (cntEl) cntEl.textContent = '(' + s.comments.length + ')';
+  const avatarEl = document.getElementById('short-cmt-avatar');
+  if (avatarEl) avatarEl.textContent = state.currentUser.name[0].toUpperCase();
+  const inputEl = document.getElementById('short-cmt-input');
+  if (inputEl) inputEl.value = '';
   renderShortCommentsList(s);
-  modal.classList.add('open');
+  // Paneli aç
+  modal.style.display = 'flex';
+  setTimeout(function(){ if (panel) panel.style.transform = 'translateX(0)'; }, 10);
+  // Input'a fokus
+  setTimeout(function(){ if (inputEl) inputEl.focus(); }, 350);
 }
 
 function closeShortComments() {
-  document.getElementById('short-comments-modal').classList.remove('open');
+  const panel = document.getElementById('short-cmt-panel');
+  const modal = document.getElementById('short-comments-modal');
+  if (panel) panel.style.transform = 'translateX(100%)';
+  setTimeout(function(){ if (modal) modal.style.display = 'none'; }, 300);
 }
 
 function renderShortCommentsList(s) {
@@ -3375,26 +3429,29 @@ function sendShortComment() {
   const u = state.currentUser;
   if (!state.platform.commentsEnabled) { showNotif('Comments are disabled by the Creator.', 'error'); return; }
   const modal = document.getElementById('short-comments-modal');
-  const shortId = parseInt(modal.getAttribute('data-short-id'));
-  const s = state.shorts.find(x => x.id === shortId);
-  if (!s) return;
+  const shortId = modal.getAttribute('data-short-id'); // ❌ parseInt kaldırıldı — Firebase string ID
+  const s = state.shorts.find(x => String(x.id) === String(shortId));
+  if (!s) { showNotif('Short bulunamadı.', 'error'); return; }
   const input = document.getElementById('short-cmt-input');
-  const text = input.value.trim();
+  const text = input ? input.value.trim() : '';
   if (!text) return;
 
   const spamCheck = checkCommentSpam(u.id);
   if (!spamCheck.allowed) { showNotif(spamCheck.msg, 'error'); return; }
   const check = validateContent(text, u.id);
-  if (!check.ok) { showNotif(check.msg, 'error'); input.value = ''; return; }
+  if (!check.ok) { showNotif(check.msg, 'error'); if (input) input.value = ''; return; }
 
   if (!s.comments) s.comments = [];
-  s.comments.push({ authorId: u.id, text: text, time: 'Just now' });
-  input.value = '';
-  input.style.height = 'auto';
-  document.getElementById('short-cmt-count').textContent = '(' + s.comments.length + ')';
+  const comment = { authorId: u.id, text: text, time: 'Just now', likes: 0 };
+  s.comments.push(comment);
+  if (input) { input.value = ''; input.style.height = 'auto'; }
+  const cntEl = document.getElementById('short-cmt-count');
+  if (cntEl) cntEl.textContent = '(' + s.comments.length + ')';
   const counterEl = document.getElementById('short-cmt-' + shortId);
   if (counterEl) counterEl.textContent = s.comments.length;
   renderShortCommentsList(s);
+  // Firebase'e kaydet
+  window.fbSendComment('shorts', String(shortId), comment);
 }
 
 function openShortsComposer() {
