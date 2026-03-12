@@ -2177,32 +2177,213 @@ function isCapsSpam(text) {
 }
 
 // ГЛАВНАЯ функция проверки контента
-function validateContent(text, userId) {
-  if (!text || !text.trim()) return { ok: false, msg: 'Текст не может быть пустым.' };
+// ═══════════════════════════════════════
+//  OPENAI GPT-4o ENTEGRASYONU
+// ═══════════════════════════════════════
 
-  // Бан
+function getOAIKey() {
+  try { return localStorage.getItem('taptalk_oai_key') || ''; } catch(e) { return ''; }
+}
+function setOAIKey(k) {
+  try { localStorage.setItem('taptalk_oai_key', k); } catch(e) {}
+}
+
+// İlk açılışta key yoksa owner'dan iste
+function checkAndAskAPIKey() {
+  if (state.currentUser && state.currentUser.role === 'creator') {
+    if (!getOAIKey()) {
+      setTimeout(function() { showAPIKeySetup(); }, 800);
+    }
+  }
+}
+
+function showAPIKeySetup() {
+  var existing = document.getElementById('api-key-setup-modal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'api-key-setup-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:20px;padding:28px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+      <div style="font-size:32px;text-align:center;margin-bottom:12px">🤖</div>
+      <div style="font-size:18px;font-weight:800;text-align:center;margin-bottom:6px;font-family:Syne,sans-serif">AI Moderasyon Kurulumu</div>
+      <div style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px">OpenAI API key'ini gir. Tarayıcında güvenle saklanır, bir daha sorulmaz.</div>
+      <input id="api-key-input" type="password" placeholder="sk-proj-..." style="width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:12px;font-size:13px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">🔒 Key sadece senin tarayıcında saklanır. GitHub'da veya sunucuda olmaz.</div>
+      <div style="display:flex;gap:10px">
+        <button onclick="saveAPIKey()" style="flex:1;padding:12px;background:var(--accent);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Kaydet & Aktifleştir</button>
+        <button onclick="document.getElementById('api-key-setup-modal').remove()" style="padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;color:var(--text2);font-size:14px;cursor:pointer">Atla</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(function(){ var inp = document.getElementById('api-key-input'); if(inp) inp.focus(); }, 100);
+}
+
+function saveAPIKey() {
+  var inp = document.getElementById('api-key-input');
+  if (!inp || !inp.value.trim().startsWith('sk-')) {
+    showNotif('❌ Geçersiz API key. "sk-" ile başlamalı.', 'error');
+    return;
+  }
+  setOAIKey(inp.value.trim());
+  document.getElementById('api-key-setup-modal').remove();
+  showNotif('✅ AI Moderasyon aktif!', 'success');
+}
+
+function resetAPIKey() {
+  try { localStorage.removeItem('taptalk_oai_key'); } catch(e) {}
+  showNotif('API key silindi.', 'info');
+  showAPIKeySetup();
+}
+
+async function gptCall(systemPrompt, userMessage, maxTokens = 300) {
+  const key = getOAIKey();
+  if (!key) return null;
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + key
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage }
+        ]
+      })
+    });
+    const data = await res.json();
+    if (data.error) { console.warn('GPT error:', data.error.message); return null; }
+    return data.choices[0].message.content.trim();
+  } catch(e) {
+    console.warn('GPT call failed:', e);
+    return null;
+  }
+}
+
+// ── 1. İçerik moderasyonu (post/yorum) ──
+async function gptModerateContent(text) {
+  const prompt = `You are a strict content moderator for a social media platform called TapTalk. 
+Analyze the following text for: hate speech, harassment, spam, sexual content, violence, threats, scams, or any policy violations.
+The text can be in ANY language (Turkish, Russian, English, Arabic, etc.) — you must understand all languages.
+Respond ONLY with JSON: {"safe": true/false, "reason": "brief reason in English", "severity": "low/medium/high/critical"}`;
+  
+  const result = await gptCall(prompt, text, 150);
+  if (!result) return { safe: true };
+  try {
+    const clean = result.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
+  } catch(e) { return { safe: true }; }
+}
+
+// ── 2. Rapor analizi ──
+async function gptAnalyzeReport(reportText, postContent) {
+  const prompt = `You are an AI moderator for TapTalk social media. 
+A user filed a report. Analyze it and respond ONLY with JSON:
+{"priority": "low/medium/high/critical", "category": "spam/hate/harassment/violence/sexual/scam/misinformation/other", "action": "dismiss/warn/remove_content/temp_ban/permanent_ban", "decision": "one sentence explanation in English", "autoAction": true/false}
+autoAction=true only for critical/high priority.`;
+
+  const msg = `Report reason: "${reportText}"\nReported content: "${postContent || 'N/A'}"`;
+  const result = await gptCall(prompt, msg, 200);
+  if (!result) return null;
+  try {
+    const clean = result.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
+  } catch(e) { return null; }
+}
+
+// ── 3. Admin AI Asistanı ──
+var _aiChatHistory = [];
+async function gptAdminChat(userMessage) {
+  const key = getOAIKey();
+  if (!key) { showAPIKeySetup(); return 'API key gerekli. Lütfen ayarla.'; }
+
+  const platformContext = `You are TapTalk's owner AI assistant. Platform stats:
+- Total users: ${state.users.length}
+- Posts: ${state.posts.length + state.textPosts.length}
+- Shorts: ${state.shorts.length}
+- Banned users: ${state.users.filter(u=>u.banned).length}
+- Premium users: ${state.users.filter(u=>u.premium).length}
+- Reports pending: ${(state.reports||[]).length}
+Answer questions about the platform, give moderation advice, analyze trends. Be concise and helpful. You can answer in Turkish, English, or any language the owner uses.`;
+
+  _aiChatHistory.push({ role: 'user', content: userMessage });
+  if (_aiChatHistory.length > 10) _aiChatHistory = _aiChatHistory.slice(-10);
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: 500,
+        messages: [
+          { role: 'system', content: platformContext },
+          ..._aiChatHistory
+        ]
+      })
+    });
+    const data = await res.json();
+    if (data.error) return '❌ ' + data.error.message;
+    const reply = data.choices[0].message.content.trim();
+    _aiChatHistory.push({ role: 'assistant', content: reply });
+    return reply;
+  } catch(e) { return '❌ Connection error: ' + e.message; }
+}
+
+function validateContent(text, userId) {
+  if (!text || !text.trim()) return { ok: false, msg: 'Content cannot be empty.' };
+
+  // Ban check
   if (isUserBanned(userId)) return { ok: false, msg: getBanMessage(userId) };
 
-  // Мат
+  // Profanity filter (anlık)
   if (isContentBad(text)) {
-    warnUser(userId, 'использование запрещённых слов');
-    return { ok: false, msg: '🚫 Текст содержит запрещённые слова. Используй нормативную лексику.' };
+    warnUser(userId, 'use of prohibited words');
+    return { ok: false, msg: '🚫 Your content contains prohibited words. Please keep it clean.' };
   }
 
-  // Ссылки
+  // External links
   if (containsExternalLinks(text)) {
-    warnUser(userId, 'публикация внешних ссылок');
-    return { ok: false, msg: '🔗 Внешние ссылки запрещены на платформе.' };
+    warnUser(userId, 'posting external links');
+    return { ok: false, msg: '🔗 External links are not allowed on this platform.' };
   }
 
-  // Капслок спам
+  // Caps spam
   if (isCapsSpam(text)) {
-    return { ok: false, msg: '🔠 Слишком много заглавных букв. Пиши нормально.' };
+    return { ok: false, msg: '🔠 Too many capital letters. Please write normally.' };
   }
 
-  // Спам постами
+  // Post spam
   const spamCheck = checkPostSpam(userId);
   if (!spamCheck.allowed) return { ok: false, msg: spamCheck.msg };
+
+  // GPT arka planda kontrol (async — yayını engellemez)
+  gptModerateContent(text).then(function(result) {
+    if (!result || result.safe) return;
+    warnUser(userId, result.reason || 'AI policy violation');
+    if (result.severity === 'critical' || result.severity === 'high') {
+      showNotif('🤖 AI Moderation flagged content: ' + (result.reason || 'policy violation'), 'error');
+      if (!state.reports) state.reports = [];
+      state.reports.push({
+        id: 'AI_' + Date.now(),
+        reason: 'AI Auto-detected: ' + result.reason,
+        category: 'ai_moderation',
+        priority: result.severity,
+        action: 'review',
+        reporterId: 'system',
+        time: Date.now(),
+        timeStr: new Date().toLocaleString(),
+        status: 'ai_flagged',
+        botDecision: 'GPT-4o flagged: ' + result.reason
+      });
+      saveReportsToStorage();
+    }
+  });
 
   return { ok: true };
 }
@@ -2355,6 +2536,9 @@ function launchApp() {
   // Gerçek zamanlı bildirimleri dinle
   if (window.listenNotifications) window.listenNotifications(u.id);
 
+  // API key varsa AI aktif, yoksa owner'a sor
+  checkAndAskAPIKey();
+
   // Auto-verify at 100k followers
   checkAutoVerify(u);
 }
@@ -2398,14 +2582,14 @@ function buildVideoCard(post, author) {
   const thumbHtml = post.mediaData
     ? (post.mediaType === 'video'
         ? `<video class="video-thumb" src="${post.mediaData}" style="background:#000;object-fit:cover" controls></video>`
-        : `<img class="video-thumb" src="${post.mediaData}" style="object-fit:cover;cursor:pointer" onclick="openVideoPlayer(${post.id})">`)
-    : `<div class="video-thumb" style="background:${post.gradient};cursor:pointer" onclick="openVideoPlayer(${post.id})"><div class="play-btn">▶</div></div>`;
+        : `<img class="video-thumb" src="${post.mediaData}" style="object-fit:cover;cursor:pointer" onclick="openVideoPlayer('${post.id}')">`)
+    : `<div class="video-thumb" style="background:${post.gradient};cursor:pointer" onclick="openVideoPlayer('${post.id}')"><div class="play-btn">▶</div></div>`;
 
   return `
   <div class="video-card" id="card-${post.id}">
     ${thumbHtml}
     <div class="card-body">
-      <div class="card-author" onclick="openUserProfile(${author.id})" style="cursor:pointer">
+      <div class="card-author" onclick="openUserProfile('${author.id}')" style="cursor:pointer">
         <div class="avatar" style="width:32px;height:32px;font-size:13px">${author.name[0]}</div>
         <div>
           <div class="author-name">${escHtml(author.name)} ${verBadge} ${premBadge} ${adminBadge}</div>
@@ -2416,17 +2600,17 @@ function buildVideoCard(post, author) {
       <div class="card-meta">${post.views} views · ${post.time}</div>
     </div>
     <div class="card-actions">
-      <button class="action-btn ${isLiked ? 'liked' : ''}" onclick="toggleLike(${post.id})">
+      <button class="action-btn ${isLiked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
         <span class="star-anim" id="star-${post.id}">${isLiked
           ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
           : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'}</span>
         <span id="likes-${post.id}">${formatNum(post.likes)}</span>
       </button>
-      <button class="action-btn" onclick="toggleComments(${post.id})">
+      <button class="action-btn" onclick="toggleComments('${post.id}')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         Comments
       </button>
-      <button class="action-btn" style="margin-left:auto" onclick="reportPost(${post.id})">
+      <button class="action-btn" style="margin-left:auto" onclick="reportPost('${post.id}')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
         Report
       </button>
@@ -2439,30 +2623,37 @@ function buildVideoCard(post, author) {
 
 function buildCommentsSection(post) {
   const me = state.currentUser;
+  const pid = String(post.id);
   let html = `<div class="comments-section">`;
   html += `<div class="comment-input-row">
     <div class="avatar" style="width:28px;height:28px;font-size:11px">${me.name[0]}</div>
-    <textarea class="comment-input" id="ci-${post.id}" placeholder="Add a comment..." rows="1"
-      oninput="liveCheckComment(this,${post.id})"></textarea>
-    <button class="send-btn" id="sb-${post.id}" onclick="sendComment(${post.id})">
+    <textarea class="comment-input" id="ci-${pid}" placeholder="Add a comment..." rows="1"
+      oninput="liveCheckComment(this,'${pid}')"></textarea>
+    <button class="send-btn" id="sb-${pid}" onclick="sendComment('${pid}')">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
     </button>
   </div>`;
 
-  post.comments.forEach((c, idx) => {
-    const author = state.users.find(x => x.id === c.authorId);
-    const isOwn = c.authorId === me.id;
-    html += `<div class="comment-item" id="cmt-${post.id}-${idx}">
-      <div class="avatar" style="width:28px;height:28px;font-size:11px;cursor:pointer" onclick="openUserProfile(${author ? author.id : 0})">${author ? author.name[0] : '?'}</div>
+  (post.comments||[]).forEach((c, idx) => {
+    const author = state.users.find(x => String(x.id) === String(c.authorId));
+    const isOwn = String(c.authorId) === String(me.id);
+    const cmtLikes = c.likes || 0;
+    const cmtLiked = c.likedBy && c.likedBy[me.id];
+    html += `<div class="comment-item" id="cmt-${pid}-${idx}">
+      <div class="avatar" style="width:28px;height:28px;font-size:11px;cursor:pointer" onclick="openUserProfile('${author ? author.id : 0}')">${author ? author.name[0] : '?'}</div>
       <div class="comment-body" style="flex:1">
-        <div class="comment-author" onclick="openUserProfile(${author ? author.id : 0})" style="cursor:pointer">${author ? escHtml(author.name) : 'Unknown'}</div>
-        <div class="comment-text" id="cmt-text-${post.id}-${idx}">${escHtml(c.text)}</div>
-        ${isOwn ? `<div style="display:flex;gap:8px;margin-top:4px">
-          <button onclick="editComment(${post.id},${idx})" style="background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:0;display:flex;align-items:center;gap:3px">
+        <div class="comment-author" onclick="openUserProfile('${author ? author.id : 0}')" style="cursor:pointer">${author ? escHtml(author.name) : 'Unknown'}</div>
+        <div class="comment-text" id="cmt-text-${pid}-${idx}">${escHtml(c.text)}</div>
+        <div style="display:flex;gap:8px;margin-top:4px;align-items:center">
+          <button id="cmt-like-${pid}-${idx}" onclick="likeComment('${pid}',${idx},'posts')"
+            style="background:none;border:none;font-size:11px;cursor:pointer;padding:0;color:${cmtLiked ? 'var(--danger)' : 'var(--text3)'}">
+            ${cmtLiked ? '❤️' : '🤍'} ${cmtLikes > 0 ? cmtLikes : ''}
+          </button>
+          ${isOwn ? `<button onclick="editComment('${pid}',${idx})" style="background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:0;display:flex;align-items:center;gap:3px">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
-          <button onclick="deleteComment(${post.id},${idx})" style="background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;padding:0;display:flex;align-items:center;gap:3px">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Delete</button>
-        </div>` : ''}
+          <button onclick="deleteComment('${pid}',${idx})" style="background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;padding:0;display:flex;align-items:center;gap:3px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Delete</button>` : ''}
+        </div>
       </div>
     </div>`;
   });
@@ -2470,93 +2661,95 @@ function buildCommentsSection(post) {
   return html;
 }
 
-// ═══════════════════════════════════════
-//  COMMENT SYSTEM
-// ═══════════════════════════════════════
 function liveCheckComment(el, postId) {
   const bad = isContentBad(el.value);
   el.classList.toggle('blocked', bad);
   el.style.borderColor = bad ? 'var(--danger)' : '';
-  document.getElementById('sb-' + postId).disabled = bad;
+  const sb = document.getElementById('sb-' + postId);
+  if (sb) sb.disabled = bad;
 }
 
 function sendComment(postId) {
   const u = state.currentUser;
   if (!state.platform.commentsEnabled) { showNotif('Comments are disabled by the Creator.', 'error'); return; }
 
-  const inp = document.getElementById(`ci-${postId}`);
-  const text = inp.value.trim();
+  const inp = document.getElementById('ci-' + postId);
+  const text = inp ? inp.value.trim() : '';
   if (!text) return;
 
-  // Спам комментов
+  // Spam kontrolü
   const spamCheck = checkCommentSpam(u.id);
   if (!spamCheck.allowed) { showNotif(spamCheck.msg, 'error'); return; }
 
-  // Полная проверка контента
+  // İçerik kontrolü
   const check = validateContent(text, u.id);
   if (!check.ok) {
     showNotif(check.msg, 'error');
-    inp.value = '';
+    if (inp) inp.value = '';
     return;
   }
 
-  const post = state.posts.find(p => p.id === postId);
-  const comment = { authorId: u.id, text, time: 'Just now' };
+  const post = state.posts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+  if (!post.comments) post.comments = [];
+  const comment = { authorId: u.id, text, time: 'Just now', likes: 0, likedBy: {} };
   post.comments.push(comment);
-  inp.value = '';
-  document.getElementById(`sb-${postId}`).disabled = false;
-  inp.classList.remove('blocked');
+  if (inp) inp.value = '';
+  const sb = document.getElementById('sb-' + postId);
+  if (sb) sb.disabled = false;
+  if (inp) inp.classList.remove('blocked');
 
-  // Firebase'e kaydet
-  window.fbSendComment('posts', postId, comment);
+  // Firebase kaydet
+  window.fbSendComment('posts', String(postId), comment);
 
-  // Re-render comments section
-  const section = document.getElementById(`comments-${postId}`);
-  section.innerHTML = buildCommentsSection(post);
-  section.style.display = 'block';
+  // Yorumları yenile
+  const section = document.getElementById('comments-' + postId);
+  if (section) { section.innerHTML = buildCommentsSection(post); section.style.display = 'block'; }
 }
 
 function editComment(postId, idx) {
-  const post = state.posts.find(p => p.id === postId);
+  const post = state.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
   const c = post.comments[idx];
-  const textEl = document.getElementById(`cmt-text-${postId}-${idx}`);
-  textEl.innerHTML = `<div style="display:flex;gap:6px;margin-top:4px">
-    <input id="edit-ci-${postId}-${idx}" value="${escHtml(c.text)}" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif">
-    <button onclick="saveEditComment(${postId},${idx})" style="background:var(--accent);border:none;border-radius:8px;padding:6px 12px;color:white;font-size:12px;font-weight:700;cursor:pointer">Save</button>
-    <button onclick="cancelEditComment(${postId},${idx},'${escHtml(c.text).replace(/'/g,"\\'")}' )" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text2);font-size:12px;cursor:pointer">✕</button>
-  </div>`;
+  const textEl = document.getElementById('cmt-text-' + postId + '-' + idx);
+  if (!textEl) return;
+  textEl.innerHTML = '<div style="display:flex;gap:6px;margin-top:4px">' +
+    '<input id="edit-ci-' + postId + '-' + idx + '" value="' + escHtml(c.text) + '" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:13px;font-family:\'DM Sans\',sans-serif">' +
+    '<button onclick="saveEditComment(\'' + postId + '\',' + idx + ')" style="background:var(--accent);border:none;border-radius:8px;padding:6px 12px;color:white;font-size:12px;font-weight:700;cursor:pointer">Save</button>' +
+    '<button onclick="cancelEditComment(\'' + postId + '\',' + idx + ',\'' + escHtml(c.text).replace(/'/g,"\\'") + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text2);font-size:12px;cursor:pointer">✕</button>' +
+    '</div>';
 }
 
 function saveEditComment(postId, idx) {
-  const post = state.posts.find(p => p.id === postId);
+  const post = state.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
-  const inp = document.getElementById(`edit-ci-${postId}-${idx}`);
-  const newText = inp.value.trim();
+  const inp = document.getElementById('edit-ci-' + postId + '-' + idx);
+  const newText = inp ? inp.value.trim() : '';
   if (!newText) return;
   if (isContentBad(newText)) { showNotif('Comment contains prohibited words.', 'error'); return; }
   post.comments[idx].text = newText;
-  const section = document.getElementById(`comments-${postId}`);
-  section.innerHTML = buildCommentsSection(post);
+  const section = document.getElementById('comments-' + postId);
+  if (section) section.innerHTML = buildCommentsSection(post);
   showNotif('Comment updated', 'success');
 }
 
 function cancelEditComment(postId, idx, orig) {
-  document.getElementById(`cmt-text-${postId}-${idx}`).textContent = orig;
+  const el = document.getElementById('cmt-text-' + postId + '-' + idx);
+  if (el) el.textContent = orig;
 }
 
 function deleteComment(postId, idx) {
-  const post = state.posts.find(p => p.id === postId);
+  const post = state.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
   post.comments.splice(idx, 1);
-  const section = document.getElementById(`comments-${postId}`);
-  section.innerHTML = buildCommentsSection(post);
+  const section = document.getElementById('comments-' + postId);
+  if (section) section.innerHTML = buildCommentsSection(post);
   showNotif('Comment deleted', 'info');
 }
 
 function toggleComments(postId) {
-  const el = document.getElementById(`comments-${postId}`);
-  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  const el = document.getElementById('comments-' + postId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 // ═══════════════════════════════════════
@@ -2568,12 +2761,12 @@ const SVG_STAR_EMPTY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="n
 function toggleLike(postId) {
   if (!state.platform.likesEnabled) { showNotif('Likes are disabled by the Creator.', 'error'); return; }
   const u = state.currentUser;
-  const post = state.posts.find(p => p.id === postId);
+  // Firestore string ID veya number ID ile çalışır
+  const post = state.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
   const isLiked = post.likedBy && post.likedBy[u.id];
-  const star = document.getElementById(`star-${postId}`);
-  const btn = document.querySelector(`#card-${postId} .action-btn`);
-  // Optimistic UI update
+  const star = document.getElementById('star-' + postId);
+  const btn = document.querySelector('#card-' + postId + ' .action-btn');
   if (isLiked) {
     post.likes = Math.max(0, (post.likes || 1) - 1);
     if (post.likedBy) delete post.likedBy[u.id];
@@ -2586,21 +2779,24 @@ function toggleLike(postId) {
     if (btn) btn.classList.add('liked');
     if (star) { star.innerHTML = SVG_STAR_FILLED; star.classList.add('pop'); setTimeout(() => star.classList.remove('pop'), 400); }
   }
-  document.getElementById(`likes-${postId}`).textContent = formatNum(post.likes);
-  // Firebase'e kaydet
-  window.fbToggleLike('posts', postId, u.id, isLiked);
+  const likesEl = document.getElementById('likes-' + postId);
+  if (likesEl) likesEl.textContent = formatNum(post.likes);
+  window.fbToggleLike('posts', String(postId), u.id, isLiked);
 }
 
 function likeTextPost(postId, btn) {
   if (!state.platform.likesEnabled) { showNotif('Likes are disabled by the Creator.', 'error'); return; }
-  const post = state.textPosts.find(p => p.id === postId);
+  const post = state.textPosts.find(p => String(p.id) === String(postId));
+  if (!post) return;
   post.liked = !post.liked;
-  post.likes += post.liked ? 1 : -1;
+  post.likes = (post.likes || 0) + (post.liked ? 1 : -1);
   const star = btn.querySelector('.star-anim');
-  star.innerHTML = post.liked ? SVG_STAR_FILLED : SVG_STAR_EMPTY;
+  if (star) star.innerHTML = post.liked ? SVG_STAR_FILLED : SVG_STAR_EMPTY;
   btn.classList.toggle('liked', post.liked);
-  btn.querySelector('span:last-child').textContent = formatNum(post.likes);
-  if (post.liked) { star.classList.add('pop'); setTimeout(() => star.classList.remove('pop'), 400); }
+  const countEl = btn.querySelector('span:last-child');
+  if (countEl) countEl.textContent = formatNum(post.likes);
+  if (post.liked && star) { star.classList.add('pop'); setTimeout(() => star.classList.remove('pop'), 400); }
+  window.fbToggleLike('textPosts', String(postId), state.currentUser.id, !post.liked);
 }
 function publishPost() {
   const u = state.currentUser;
@@ -3097,20 +3293,50 @@ function likeShort(btn) {
 }
 
 function likeShortItem(id, btn) {
-  const item = state.shorts.find(s => s.id === id);
+  if (!state.platform.likesEnabled) { showNotif('Likes are disabled by the Creator.', 'error'); return; }
+  const u = state.currentUser;
+  const item = state.shorts.find(s => String(s.id) === String(id));
   if (!item) return;
-  item.liked = !item.liked;
-  item.likes += item.liked ? 1 : -1;
+  const isLiked = item.likedBy && item.likedBy[u.id];
+  if (isLiked) {
+    item.likes = Math.max(0, (item.likes||1) - 1);
+    if (item.likedBy) delete item.likedBy[u.id];
+  } else {
+    item.likes = (item.likes||0) + 1;
+    if (!item.likedBy) item.likedBy = {};
+    item.likedBy[u.id] = true;
+  }
   const starEl = document.getElementById('short-star-' + id);
   const likesEl = document.getElementById('short-likes-' + id);
   if (starEl) {
-    starEl.innerHTML = item.liked
+    starEl.innerHTML = !isLiked
       ? '<svg width="28" height="28" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
       : '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
     starEl.style.transform = 'scale(1.35)';
     setTimeout(function(){ starEl.style.transform = 'scale(1)'; starEl.style.transition = 'transform 0.2s'; }, 180);
   }
   if (likesEl) likesEl.textContent = formatNum(item.likes);
+  window.fbToggleLike('shorts', String(id), u.id, isLiked);
+}
+
+// Yorum like
+function likeComment(postId, cmtIdx, collection) {
+  const u = state.currentUser;
+  const arr = collection === 'shorts' ? state.shorts : (collection === 'textPosts' ? state.textPosts : state.posts);
+  const post = arr.find(p => String(p.id) === String(postId));
+  if (!post || !post.comments || !post.comments[cmtIdx]) return;
+  const cmt = post.comments[cmtIdx];
+  if (!cmt.likedBy) cmt.likedBy = {};
+  const isLiked = !!cmt.likedBy[u.id];
+  if (isLiked) {
+    delete cmt.likedBy[u.id];
+    cmt.likes = Math.max(0, (cmt.likes||1) - 1);
+  } else {
+    cmt.likedBy[u.id] = true;
+    cmt.likes = (cmt.likes||0) + 1;
+  }
+  const el = document.getElementById('cmt-like-' + postId + '-' + cmtIdx);
+  if (el) el.textContent = '❤️ ' + (cmt.likes||0);
 }
 
 function renderStreams() {
@@ -3491,32 +3717,28 @@ var AI_RULES = {
 };
 
 function aiBotAnalyzeReport(reason, postId, reporterId) {
+  // Raporlanan içeriği bul
+  var post = state.posts.find(function(p){ return p.id == postId; }) ||
+             state.textPosts.find(function(p){ return p.id == postId; }) ||
+             state.shorts.find(function(p){ return p.id == postId; });
+  var postContent = post ? (post.title || post.text || '') : '';
+
+  // Önce yerel kural bazlı analiz yap (anlık sonuç)
   var text = (reason || '').toLowerCase();
   var detected = null;
-
-  // Бот сканирует все категории
   for (var cat in AI_RULES) {
     var rule = AI_RULES[cat];
     for (var k = 0; k < rule.keywords.length; k++) {
-      if (text.includes(rule.keywords[k])) {
-        detected = { cat: cat, rule: rule };
-        break;
-      }
+      if (text.includes(rule.keywords[k])) { detected = { cat: cat, rule: rule }; break; }
     }
     if (detected) break;
   }
-
-  // Если не нашёл ключевых слов — всё равно принимает по контексту
   if (!detected) {
-    // Проверяем длину — длинный репорт = серьёзная жалоба
-    if (text.length > 20) {
-      detected = { cat: 'general', rule: { action: 'review', label: 'Общая жалоба', priority: 'medium' } };
-    } else {
-      detected = { cat: 'general', rule: { action: 'review', label: 'Жалоба получена', priority: 'low' } };
-    }
+    detected = text.length > 20
+      ? { cat: 'general', rule: { action: 'review', label: 'General Complaint', priority: 'medium' } }
+      : { cat: 'general', rule: { action: 'review', label: 'Report Received', priority: 'low' } };
   }
 
-  // Сохраняем репорт с решением бота
   if (!state.reports) state.reports = [];
   var reportId = 'R' + Date.now();
   var report = {
@@ -3532,25 +3754,57 @@ function aiBotAnalyzeReport(reason, postId, reporterId) {
     timeStr: new Date().toLocaleString(),
     status: 'reviewed',
     botDecision: getBotDecisionText(detected.rule.action, detected.rule.priority),
+    aiAnalysis: '🤖 GPT analyzing...'
   };
   state.reports.push(report);
   saveReportsToStorage();
-  // Firebase'e de kaydet
   if (window.fbSendReport) window.fbSendReport(report);
 
-  // Бот выполняет действие автоматически
-  var post = state.posts.find(function(p){ return p.id == postId; }) ||
-             state.textPosts.find(function(p){ return p.id == postId; }) ||
-             state.shorts.find(function(p){ return p.id == postId; });
-  if (post) {
-    var author = state.users.find(function(u){ return u.id === post.authorId; });
-    if (author && author.role !== 'creator') {
-      if (detected.rule.action === 'ban_perm') {
-        author.banned = true;
+  // GPT analizi arka planda çalışır
+  gptAnalyzeReport(reason, postContent).then(function(gptResult) {
+    if (!gptResult) return;
+    // Raporu GPT kararıyla güncelle
+    report.priority = gptResult.priority || report.priority;
+    report.category = gptResult.category || report.category;
+    report.action = gptResult.action || report.action;
+    report.aiAnalysis = '🤖 GPT-4o: ' + (gptResult.decision || '');
+    report.botDecision = '🤖 GPT: ' + (gptResult.decision || '') + ' → Action: ' + gptResult.action;
+    saveReportsToStorage();
+
+    // Yüksek öncelikli ise otomatik aksiyon
+    if (gptResult.autoAction && post) {
+      var author = state.users.find(function(u){ return u.id === post.authorId; });
+      if (author && author.role !== 'creator') {
+        if (gptResult.action === 'permanent_ban') {
+          author.banned = true;
+          showNotif('🤖 GPT Auto-action: @' + author.username + ' permanently banned.', 'error');
+        } else if (gptResult.action === 'temp_ban') {
+          author.tempBanned = true;
+          author.tempBanUntil = Date.now() + 7*24*60*60*1000;
+          showNotif('🤖 GPT Auto-action: @' + author.username + ' temp banned 7 days.', 'info');
+        } else if (gptResult.action === 'remove_content') {
+          state.posts = state.posts.filter(function(p){ return p.id != postId; });
+          state.textPosts = state.textPosts.filter(function(p){ return p.id != postId; });
+          state.shorts = state.shorts.filter(function(p){ return p.id != postId; });
+          showNotif('🤖 GPT Auto-action: Content removed.', 'info');
+          renderFeed();
+        }
+        if (window.fbUpdateUser && author) window.fbUpdateUser(author.id, {banned:author.banned,tempBanned:author.tempBanned});
         saveReportsToStorage();
-      } else if (detected.rule.action === 'ban_temp') {
-        author.tempBanned = true;
-        author.tempBanUntil = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 дней
+      }
+    }
+
+    showNotif('🤖 AI Report Analysis: ' + (gptResult.decision || 'Done'), 'success');
+  });
+
+  // Yerel aksiyon (anlık)
+  if (post) {
+    var author2 = state.users.find(function(u){ return u.id === post.authorId; });
+    if (author2 && author2.role !== 'creator') {
+      if (detected.rule.action === 'ban_perm') { author2.banned = true; saveReportsToStorage(); }
+      else if (detected.rule.action === 'ban_temp') {
+        author2.tempBanned = true;
+        author2.tempBanUntil = Date.now() + 7*24*60*60*1000;
         saveReportsToStorage();
       }
     }
@@ -4655,161 +4909,469 @@ function applyAvatar(imgSrc) {
 function renderStats() {
   if (state.currentUser.role !== 'creator') return;
 
-  const totalAccounts = state.users.length;
+  const u = state.currentUser;
+  const totalUsers = state.users.length;
   const totalPosts = state.posts.length + state.textPosts.length + state.shorts.length + state.streams.length;
-  const totalComments = state.posts.reduce(function(sum, p) { return sum + p.comments.length; }, 0);
-  const onlineNow = Math.floor(Math.random() * 40) + 8; // simulated
-  const bannedCount = state.users.filter(function(u) { return u.banned; }).length;
-  const premiumCount = state.users.filter(function(u) { return u.premium; }).length;
-  const verifiedCount = state.users.filter(function(u) { return u.verified; }).length;
+  const totalComments = state.posts.reduce((s,p)=>s+(p.comments||[]).length,0) + state.textPosts.reduce((s,p)=>s+(p.comments||[]).length,0);
+  const bannedCount = state.users.filter(u=>u.banned).length;
+  const tempBannedCount = state.users.filter(u=>u.tempBanned && !u.banned).length;
+  const premiumCount = state.users.filter(u=>u.premium).length;
+  const verifiedCount = state.users.filter(u=>u.verified).length;
+  const adminCount = state.users.filter(u=>u.role==='admin').length;
+  const reportCount = (state.reports||[]).length;
+  const onlineNow = Math.floor(Math.random()*40)+8;
+
+  // Active tab state
+  if (!window._ownerTab) window._ownerTab = 'overview';
+  const tab = window._ownerTab;
 
   var html = '';
 
-  // Main stat cards
-  html += '<div class="stats-grid">';
+  // ── HEADER ──
+  html += '<div style="background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:20px;padding:24px;margin-bottom:20px;color:white">' +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;opacity:0.8;margin-bottom:6px">Owner Control Panel</div>' +
+    '<div style="font-size:26px;font-weight:800;font-family:Syne,sans-serif">TapTalk Dashboard</div>' +
+    '<div style="font-size:13px;opacity:0.85;margin-top:6px">Full platform management · ' + new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) + '</div>' +
+  '</div>';
 
-  html += '<div class="stat-card">' +
-    '<div class="stat-card-glow" style="background:var(--success)"></div>' +
-    '<span class="stat-card-icon">🌐</span>' +
-    '<div class="stat-card-value"><span class="online-dot"></span>' + onlineNow + '</div>' +
-    '<div class="stat-card-label">Online right now</div>' +
+  // ── STAT CARDS ROW ──
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:20px">';
+  [
+    {icon:'👥',val:totalUsers,label:'Total Users',color:'var(--accent)'},
+    {icon:'📄',val:totalPosts,label:'Total Posts',color:'var(--accent2)'},
+    {icon:'💬',val:totalComments,label:'Comments',color:'#5cf8c8'},
+    {icon:'🚫',val:bannedCount,label:'Banned',color:'var(--danger)'},
+    {icon:'⏳',val:tempBannedCount,label:'Temp Banned',color:'#ffb830'},
+    {icon:'⭐',val:premiumCount,label:'Premium',color:'#ffb830'},
+    {icon:'✓',val:verifiedCount,label:'Verified',color:'#5cf8c8'},
+    {icon:'🛡️',val:adminCount,label:'Admins',color:'var(--accent)'},
+    {icon:'🔴',val:onlineNow,label:'Online Now',color:'#3dffa0'},
+    {icon:'📋',val:reportCount,label:'Reports',color:'var(--danger)'},
+  ].forEach(function(c){
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center">' +
+      '<div style="font-size:22px;margin-bottom:4px">' + c.icon + '</div>' +
+      '<div style="font-size:20px;font-weight:800;font-family:Syne,sans-serif;color:' + c.color + '">' + c.val + '</div>' +
+      '<div style="font-size:11px;color:var(--text3);margin-top:2px">' + c.label + '</div>' +
     '</div>';
-
-  html += '<div class="stat-card">' +
-    '<div class="stat-card-glow" style="background:var(--accent)"></div>' +
-    '<span class="stat-card-icon">👥</span>' +
-    '<div class="stat-card-value">' + totalAccounts + '</div>' +
-    '<div class="stat-card-label">Registered accounts</div>' +
-    '</div>';
-
-  html += '<div class="stat-card">' +
-    '<div class="stat-card-glow" style="background:var(--accent2)"></div>' +
-    '<span class="stat-card-icon">📄</span>' +
-    '<div class="stat-card-value">' + totalPosts + '</div>' +
-    '<div class="stat-card-label">Total posts (all types)</div>' +
-    '</div>';
-
-  html += '<div class="stat-card">' +
-    '<div class="stat-card-glow" style="background:var(--premium)"></div>' +
-    '<span class="stat-card-icon">💬</span>' +
-    '<div class="stat-card-value">' + totalComments + '</div>' +
-    '<div class="stat-card-label">Total comments</div>' +
-    '</div>';
-
+  });
   html += '</div>';
 
-  // Secondary stats
-  html += '<div class="stats-section-title">Breakdown</div>';
-  html += '<div class="video-card" style="border-radius:16px;margin-bottom:20px"><div class="card-body">';
-
-  var rows = [
-    { icon:'🎬', label:'Videos', val: state.posts.length },
-    { icon:'⚡', label:'Shorts', val: state.shorts.length },
-    { icon:'🔴', label:'Live Streams', val: state.streams.length },
-    { icon:'📝', label:'Text Posts', val: state.textPosts.length },
-    { icon:'⭐', label:'Premium users', val: premiumCount },
-    { icon:'✓',  label:'Verified accounts', val: verifiedCount },
-    { icon:'🚫', label:'Banned accounts', val: bannedCount },
-  ];
-
-  rows.forEach(function(r) {
-    html += '<div class="recent-row">' +
-      '<span style="font-size:18px;width:28px;text-align:center">' + r.icon + '</span>' +
-      '<span style="flex:1;color:var(--text2)">' + r.label + '</span>' +
-      '<span style="font-family:Syne,sans-serif;font-weight:700;font-size:16px">' + r.val + '</span>' +
-      '</div>';
+  // ── TABS ──
+  var tabs = [{id:'overview',label:'📊 Overview'},{id:'users',label:'👥 Users'},{id:'content',label:'📄 Content'},{id:'reports',label:'📋 Reports'},{id:'controls',label:'⚙️ Controls'},{id:'ai',label:'🤖 AI Assistant'}];
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">';
+  tabs.forEach(function(t){
+    html += '<button onclick="window._ownerTab=\'' + t.id + '\';renderStats()" style="padding:8px 14px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:' +
+      (tab===t.id ? 'var(--accent);color:white' : 'var(--surface2);color:var(--text2)') + '">' + t.label + '</button>';
   });
+  html += '</div>';
 
-  html += '</div></div>';
-
-  // Recent registrations
-  html += '<div class="stats-section-title">Recent Accounts</div>';
-  html += '<div class="video-card" style="border-radius:16px"><div class="card-body">';
-  var recent = state.users.slice().reverse().slice(0, 5);
-  recent.forEach(function(u) {
-    html += '<div class="recent-row">' +
-      '<div class="avatar" style="width:28px;height:28px;font-size:11px;flex-shrink:0">' + u.name[0] + '</div>' +
-      '<div style="flex:1">' +
-      '<div style="font-size:13px;font-weight:600">' + escHtml(u.name) + '</div>' +
-      '<div style="font-size:11px;color:var(--text3)">@' + u.username + ' · ' + u.role + '</div>' +
-      '</div>' +
-      '<span style="font-size:11px;color:var(--text3)">ID #' + u.id + '</span>' +
+  // ══════════════════════════════
+  //  TAB: OVERVIEW
+  // ══════════════════════════════
+  if (tab === 'overview') {
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:16px">';
+    html += '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Platform Breakdown</div>';
+    [
+      {icon:'🎬',label:'Videos',val:state.posts.length},
+      {icon:'⚡',label:'Shorts',val:state.shorts.length},
+      {icon:'🔴',label:'Live Streams',val:state.streams.length},
+      {icon:'📝',label:'Text Posts',val:state.textPosts.length},
+      {icon:'🤝',label:'Friend connections',val:state.users.reduce((s,u)=>s+(u.friends||[]).length,0)},
+    ].forEach(function(r){
+      html += '<div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="font-size:18px;width:32px">' + r.icon + '</span>' +
+        '<span style="flex:1;font-size:13px;color:var(--text2)">' + r.label + '</span>' +
+        '<span style="font-weight:700;font-size:15px">' + r.val + '</span>' +
       '</div>';
-  });
-  html += '</div></div>';
+    });
+    html += '</div>';
 
-  // Refresh button
-  html += '<div style="margin-top:16px">' +
-    '<button class="btn-small" onclick="renderStats()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);display:inline-flex;align-items:center;gap:6px">' +
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button></div>';
-
-  // ── CREATOR CONTROLS ──
-  html += '<div style="margin-top:32px">';
-  html += '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:14px;display:flex;align-items:center;gap:8px">' +
-    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Creator Controls — Platform-wide</div>';
-
-  // Toggle rows
-  function ctrlRow(icon, label, desc, stateKey, onLabel, offLabel) {
-    const on = state.platform[stateKey];
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:10px">' +
-      '<div style="display:flex;align-items:center;gap:12px">' +
-        '<div style="width:38px;height:38px;background:var(--surface2);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text2)">' + icon + '</div>' +
-        '<div><div style="font-size:14px;font-weight:600">' + label + '</div>' +
-        '<div style="font-size:12px;color:var(--text3);margin-top:2px">' + desc + '</div></div>' +
-      '</div>' +
-      '<button onclick="platformToggle(\'' + stateKey + '\')" style="padding:7px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:' +
-        (on ? 'rgba(92,248,200,0.15);color:#1a9e6e' : 'rgba(255,60,60,0.1);color:var(--danger)') +
-        '">' + (on ? '✓ ' + onLabel : '✗ ' + offLabel) + '</button>' +
-    '</div>';
+    // Recent signups
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px">';
+    html += '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Recent Registrations</div>';
+    state.users.slice().reverse().slice(0,8).forEach(function(usr){
+      var statusColor = usr.banned ? 'var(--danger)' : usr.tempBanned ? '#ffb830' : '#3dffa0';
+      var statusText = usr.banned ? 'Banned' : usr.tempBanned ? 'Temp Ban' : 'Active';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">' +
+        '<div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;flex-shrink:0">' + usr.name[0].toUpperCase() + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(usr.name) + (usr.verified?' ✓':'') + '</div>' +
+          '<div style="font-size:11px;color:var(--text3)">@' + escHtml(usr.username) + ' · ' + usr.email + '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">' +
+          '<span style="font-size:10px;font-weight:700;background:' + statusColor + '22;color:' + statusColor + ';padding:2px 8px;border-radius:20px">' + statusText + '</span>' +
+          '<span style="font-size:10px;color:var(--text3);text-transform:capitalize">' + usr.role + '</span>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
   }
 
-  html += ctrlRow(
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
-    'Likes', 'Allow users to like content', 'likesEnabled', 'Likes ON', 'Likes OFF'
-  );
-  html += ctrlRow(
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
-    'Comments', 'Allow users to comment on posts', 'commentsEnabled', 'Comments ON', 'Comments OFF'
-  );
-  html += ctrlRow(
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
-    'New Posts', 'Allow users to publish content', 'newPostsEnabled', 'Posting ON', 'Posting OFF'
-  );
+  // ══════════════════════════════
+  //  TAB: USERS
+  // ══════════════════════════════
+  else if (tab === 'users') {
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden">';
+    html += '<div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">' +
+      '<div style="font-size:13px;font-weight:700">' + totalUsers + ' Registered Users</div>' +
+      '<input id="owner-user-search" oninput="renderStats()" placeholder="Search..." style="padding:6px 12px;border:1px solid var(--border);border-radius:20px;font-size:12px;background:var(--surface2);color:var(--text);width:140px">' +
+    '</div>';
 
-  // Ban all / Unban all / Delete all
-  html += '<div style="margin-top:20px;font-size:11px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">Extreme Actions</div>';
+    var searchQ = (document.getElementById('owner-user-search') ? document.getElementById('owner-user-search').value.toLowerCase() : '');
+    var filteredUsers = state.users.filter(function(usr){
+      return !searchQ || usr.name.toLowerCase().includes(searchQ) || usr.username.toLowerCase().includes(searchQ) || usr.email.toLowerCase().includes(searchQ);
+    });
 
-  html += '<div style="display:flex;flex-direction:column;gap:10px">';
+    filteredUsers.forEach(function(usr){
+      if (usr.role === 'creator') return;
+      var statusColor = usr.banned ? 'var(--danger)' : usr.tempBanned ? '#ffb830' : '#3dffa0';
+      var statusText = usr.banned ? 'Banned' : usr.tempBanned ? 'Temp Banned' : 'Active';
 
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:14px">' +
-    '<div>' +
-      '<div style="font-size:14px;font-weight:600">Ban All Users</div>' +
-      '<div style="font-size:12px;color:var(--text3);margin-top:2px">Permanently ban every account (except Creator)</div>' +
-    '</div>' +
-    '<button onclick="creatorBanAll()" style="padding:8px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:rgba(255,60,60,0.12);color:var(--danger)">Ban All</button>' +
+      html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+          '<div style="width:40px;height:40px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;flex-shrink:0">' + usr.name[0].toUpperCase() + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:14px;font-weight:700">' + escHtml(usr.name) + (usr.verified ? ' <span style="color:#5cf8c8;font-size:11px">✓</span>' : '') + (usr.premium ? ' <span style="color:#ffb830;font-size:10px">PRO</span>' : '') + '</div>' +
+            '<div style="font-size:12px;color:var(--text3)">@' + escHtml(usr.username) + ' · ' + usr.email + '</div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:2px">' + usr.followers + ' followers · ' + usr.videos + ' videos · Role: ' + usr.role + '</div>' +
+          '</div>' +
+          '<span style="font-size:10px;font-weight:700;background:' + statusColor + '22;color:' + statusColor + ';padding:3px 10px;border-radius:20px;white-space:nowrap">' + statusText + '</span>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+          (!usr.banned
+            ? '<button onclick="ownerTempBan(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:#ffb830">⏳ Temp Ban</button>' +
+              '<button onclick="ownerBan(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:none;font-size:11px;font-weight:600;cursor:pointer;background:rgba(255,60,60,0.12);color:var(--danger)">🚫 Permanent Ban</button>'
+            : '<button onclick="ownerUnban(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:none;font-size:11px;font-weight:600;cursor:pointer;background:rgba(61,255,160,0.12);color:#1a9e6e">✓ Unban</button>') +
+          (!usr.verified
+            ? '<button onclick="ownerVerify(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:var(--text2)">✓ Give Verify</button>'
+            : '<button onclick="ownerUnverify(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:var(--text2)">Remove Verify</button>') +
+          (!usr.premium
+            ? '<button onclick="ownerGivePremium(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:#ffb830">⭐ Give PRO</button>'
+            : '<button onclick="ownerRemovePremium(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:var(--text2)">Remove PRO</button>') +
+          (usr.role !== 'admin'
+            ? '<button onclick="ownerMakeAdmin(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:var(--text2)">🛡️ Make Admin</button>'
+            : '<button onclick="ownerRemoveAdmin(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;font-weight:600;cursor:pointer;background:var(--surface2);color:var(--text2)">Remove Admin</button>') +
+          '<button onclick="ownerDeleteUser(\'' + usr.id + '\')" style="padding:5px 12px;border-radius:20px;border:none;font-size:11px;font-weight:600;cursor:pointer;background:var(--danger);color:white">🗑️ Delete Account</button>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ══════════════════════════════
+  //  TAB: CONTENT
+  // ══════════════════════════════
+  else if (tab === 'content') {
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px">';
+    html += '<div style="padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">All Videos (' + state.posts.length + ')</div>';
+    if (state.posts.length === 0) html += '<div style="padding:20px;text-align:center;color:var(--text3)">No videos yet</div>';
+    state.posts.forEach(function(p){
+      var author = state.users.find(function(x){return x.id===p.authorId;})||{name:'?',username:'?'};
+      html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">' +
+        '<div style="width:48px;height:36px;border-radius:8px;background:' + (p.gradient||'var(--surface2)') + ';flex-shrink:0"></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(p.title||'') + '</div>' +
+          '<div style="font-size:11px;color:var(--text3)">@' + escHtml(author.username) + ' · ⭐ ' + (p.likes||0) + ' · 💬 ' + (p.comments||[]).length + '</div>' +
+        '</div>' +
+        '<button onclick="ownerDeletePost(\'posts\',\'' + p.id + '\')" style="padding:4px 10px;border-radius:20px;border:none;font-size:11px;cursor:pointer;background:rgba(255,60,60,0.12);color:var(--danger)">Delete</button>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px">';
+    html += '<div style="padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">All Shorts (' + state.shorts.length + ')</div>';
+    if (state.shorts.length === 0) html += '<div style="padding:20px;text-align:center;color:var(--text3)">No shorts yet</div>';
+    state.shorts.forEach(function(p){
+      var author = state.users.find(function(x){return x.id===p.authorId;})||{name:'?',username:'?'};
+      html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">' +
+        '<div style="width:36px;height:48px;border-radius:8px;background:' + (p.gradient||'var(--surface2)') + ';flex-shrink:0"></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(p.title||'') + '</div>' +
+          '<div style="font-size:11px;color:var(--text3)">@' + escHtml(author.username) + ' · ⭐ ' + (p.likes||0) + '</div>' +
+        '</div>' +
+        '<button onclick="ownerDeletePost(\'shorts\',\'' + p.id + '\')" style="padding:4px 10px;border-radius:20px;border:none;font-size:11px;cursor:pointer;background:rgba(255,60,60,0.12);color:var(--danger)">Delete</button>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden">';
+    html += '<div style="padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">All Text Posts (' + state.textPosts.length + ')</div>';
+    if (state.textPosts.length === 0) html += '<div style="padding:20px;text-align:center;color:var(--text3)">No text posts yet</div>';
+    state.textPosts.forEach(function(p){
+      var author = state.users.find(function(x){return x.id===p.authorId;})||{name:'?',username:'?'};
+      html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml((p.text||'').slice(0,80)) + '</div>' +
+          '<div style="font-size:11px;color:var(--text3)">@' + escHtml(author.username) + ' · ⭐ ' + (p.likes||0) + '</div>' +
+        '</div>' +
+        '<button onclick="ownerDeletePost(\'textPosts\',\'' + p.id + '\')" style="padding:4px 10px;border-radius:20px;border:none;font-size:11px;cursor:pointer;background:rgba(255,60,60,0.12);color:var(--danger)">Delete</button>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ══════════════════════════════
+  //  TAB: REPORTS
+  // ══════════════════════════════
+  else if (tab === 'reports') {
+    var reports = state.reports || [];
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden">';
+    html += '<div style="padding:14px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700">' + reports.length + ' Total Reports</div>';
+    if (reports.length === 0) {
+      html += '<div style="padding:40px;text-align:center;color:var(--text3)">No reports yet</div>';
+    } else {
+      var prioColors = {critical:'#ff4a4a',high:'#ffb830',medium:'var(--accent)',low:'var(--text3)'};
+      reports.slice().reverse().forEach(function(r){
+        var col = prioColors[r.priority]||'var(--text3)';
+        html += '<div style="padding:12px 16px;border-bottom:1px solid var(--border)">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+            '<span style="font-size:10px;font-weight:700;background:' + col + '22;color:' + col + ';padding:2px 8px;border-radius:20px;text-transform:uppercase">' + (r.priority||'?') + '</span>' +
+            '<span style="font-size:11px;color:var(--text3)">' + (r.timeStr||'') + '</span>' +
+          '</div>' +
+          '<div style="font-size:13px;font-weight:600">' + escHtml(r.reason||'') + '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">' + escHtml(r.botDecision||'') + '</div>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+  }
+
+  // ══════════════════════════════
+  //  TAB: CONTROLS
+  // ══════════════════════════════
+  else if (tab === 'controls') {
+    // Platform toggles
+    html += '<div style="font-size:13px;font-weight:700;margin-bottom:12px">Platform Toggles</div>';
+    function ctrlRow(icon, label, desc, stateKey, onLabel, offLabel) {
+      const on = state.platform[stateKey];
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:10px">' +
+        '<div style="display:flex;align-items:center;gap:12px">' +
+          '<div style="width:38px;height:38px;background:var(--surface2);border-radius:10px;display:flex;align-items:center;justify-content:center">' + icon + '</div>' +
+          '<div><div style="font-size:14px;font-weight:600">' + label + '</div><div style="font-size:12px;color:var(--text3)">' + desc + '</div></div>' +
+        '</div>' +
+        '<button onclick="platformToggle(\'' + stateKey + '\')" style="padding:7px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:' +
+          (on ? 'rgba(92,248,200,0.15);color:#1a9e6e' : 'rgba(255,60,60,0.1);color:var(--danger)') + '">' +
+          (on ? '✓ ' + onLabel : '✗ ' + offLabel) + '</button>' +
+      '</div>';
+    }
+    html += ctrlRow('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>','Likes','Allow users to like content','likesEnabled','Likes ON','Likes OFF');
+    html += ctrlRow('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>','Comments','Allow commenting on posts','commentsEnabled','Comments ON','Comments OFF');
+    html += ctrlRow('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>','New Posts','Allow publishing content','newPostsEnabled','Posting ON','Posting OFF');
+
+    // Danger zone
+    html += '<div style="margin-top:24px;font-size:11px;font-weight:700;color:var(--danger);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">⚠️ Danger Zone</div>';
+    html += '<div style="display:flex;flex-direction:column;gap:10px">';
+    [
+      {label:'Ban All Users',desc:'Permanently ban every account (Creator protected)',btnLabel:'Ban All',fn:'creatorBanAll()',color:'var(--danger)',bg:'rgba(255,60,60,0.1)'},
+      {label:'Unban All Users',desc:'Restore access for all banned accounts',btnLabel:'Unban All',fn:'creatorUnbanAll()',color:'#1a9e6e',bg:'rgba(92,248,200,0.1)'},
+      {label:'Delete All Content',desc:'Remove all posts, shorts, streams permanently',btnLabel:'Delete All Content',fn:'ownerDeleteAllContent()',color:'var(--danger)',bg:'rgba(255,60,60,0.1)'},
+      {label:'Delete All Accounts',desc:'Permanently remove all users — irreversible!',btnLabel:'Delete All',fn:'creatorDeleteAll()',color:'white',bg:'var(--danger)'},
+    ].forEach(function(a){
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:14px;gap:12px">' +
+        '<div><div style="font-size:14px;font-weight:600">' + a.label + '</div><div style="font-size:12px;color:var(--text3);margin-top:2px">' + a.desc + '</div></div>' +
+        '<button onclick="' + a.fn + '" style="padding:8px 14px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:' + a.bg + ';color:' + a.color + ';white-space:nowrap;flex-shrink:0">' + a.btnLabel + '</button>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ══════════════════════════════
+  //  TAB: AI ASSISTANT
+  // ══════════════════════════════
+  else if (tab === 'ai') {
+    if (!window._aiMessages) window._aiMessages = [];
+    var msgs = window._aiMessages;
+
+    html += '<div style="background:linear-gradient(135deg,rgba(124,92,252,0.1),rgba(252,92,125,0.1));border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">' +
+      '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🤖</div>' +
+      '<div style="flex:1"><div style="font-size:14px;font-weight:700">TapTalk AI Assistant</div><div style="font-size:12px;color:var(--text3)">Powered by GPT-4o · ' + (getOAIKey() ? '✅ API Key aktif' : '⚠️ API Key girilmedi') + '</div></div>' +
+      (getOAIKey()
+        ? '<button onclick="resetAPIKey()" style="padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);font-size:11px;cursor:pointer">🔑 Key değiştir</button>'
+        : '<button onclick="showAPIKeySetup()" style="padding:6px 12px;border-radius:20px;border:none;background:var(--accent);color:white;font-size:11px;font-weight:700;cursor:pointer">+ API Key Gir</button>') +
+    '</div>';
+
+    // Chat messages
+    html += '<div id="ai-chat-box" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;height:320px;overflow-y:auto;padding:14px;margin-bottom:12px;display:flex;flex-direction:column;gap:10px">';
+    if (msgs.length === 0) {
+      html += '<div style="text-align:center;color:var(--text3);margin:auto"><div style="font-size:32px;margin-bottom:8px">💬</div><div style="font-size:13px">Ask me anything about TapTalk!</div><div style="font-size:12px;margin-top:4px;opacity:0.7">Examples: "How many users joined today?", "Who has the most followers?", "Should I ban this user?"</div></div>';
+    } else {
+      msgs.forEach(function(m) {
+        var isUser = m.role === 'user';
+        html += '<div style="display:flex;' + (isUser ? 'justify-content:flex-end' : 'justify-content:flex-start') + '">' +
+          '<div style="max-width:80%;padding:10px 14px;border-radius:' + (isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px') + ';background:' + (isUser ? 'var(--accent)' : 'var(--surface2)') + ';color:' + (isUser ? 'white' : 'var(--text)') + ';font-size:13px;line-height:1.5">' +
+          m.content.replace(/\n/g,'<br>') + '</div></div>';
+      });
+    }
+    html += '</div>';
+
+    // Input
+    html += '<div style="display:flex;gap:8px">' +
+      '<input id="ai-input" placeholder="Ask the AI about your platform..." onkeydown="if(event.key===\'Enter\')sendAIMessage()" style="flex:1;padding:12px 16px;border:1px solid var(--border);border-radius:20px;font-size:13px;background:var(--surface2);color:var(--text);font-family:\'DM Sans\',sans-serif" />' +
+      '<button onclick="sendAIMessage()" id="ai-send-btn" style="padding:12px 20px;border-radius:20px;border:none;background:var(--accent);color:white;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">Send</button>' +
+    '</div>';
+
+    // Quick prompts
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">';
+    ['Platform summary', 'Who joined recently?', 'Moderation advice', 'How to grow users?', 'Report analysis tips'].forEach(function(q){
+      html += '<button onclick="quickAIPrompt(\'' + q + '\')" style="padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:11px;font-weight:600;cursor:pointer">' + q + '</button>';
+    });
+    html += '</div>';
+  }
+
+  // Refresh button
+  html += '<div style="margin-top:16px;display:flex;gap:8px">' +
+    '<button onclick="renderStats()" style="padding:8px 16px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;font-weight:600;cursor:pointer">↻ Refresh</button>' +
   '</div>';
-
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1.5px solid var(--border);border-radius:14px">' +
-    '<div>' +
-      '<div style="font-size:14px;font-weight:600">Unban All Users</div>' +
-      '<div style="font-size:12px;color:var(--text3);margin-top:2px">Restore access for all banned accounts</div>' +
-    '</div>' +
-    '<button onclick="creatorUnbanAll()" style="padding:8px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:rgba(92,248,200,0.12);color:#1a9e6e">Unban All</button>' +
-  '</div>';
-
-  html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border:1.5px solid rgba(255,60,60,0.4);border-radius:14px">' +
-    '<div>' +
-      '<div style="font-size:14px;font-weight:600;color:var(--danger)">Delete All Accounts</div>' +
-      '<div style="font-size:12px;color:var(--text3);margin-top:2px">Permanently remove all users — irreversible!</div>' +
-    '</div>' +
-    '<button onclick="creatorDeleteAll()" style="padding:8px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;background:var(--danger);color:white">Delete All</button>' +
-  '</div>';
-
-  html += '</div></div>';
 
   document.getElementById('stats-content').innerHTML = html;
+
+  // AI chat scroll to bottom
+  if (tab === 'ai') {
+    var box = document.getElementById('ai-chat-box');
+    if (box) box.scrollTop = box.scrollHeight;
+    setTimeout(function(){ var inp = document.getElementById('ai-input'); if(inp) inp.focus(); }, 100);
+  }
 }
 
+async function sendAIMessage() {
+  var inp = document.getElementById('ai-input');
+  var btn = document.getElementById('ai-send-btn');
+  if (!inp || !inp.value.trim()) return;
+  var msg = inp.value.trim();
+  inp.value = '';
+  if (!window._aiMessages) window._aiMessages = [];
+  window._aiMessages.push({ role: 'user', content: msg });
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  renderStats();
+  var reply = await gptAdminChat(msg);
+  window._aiMessages.push({ role: 'assistant', content: reply });
+  if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+  renderStats();
+}
+
+function quickAIPrompt(text) {
+  var inp = document.getElementById('ai-input');
+  if (inp) { inp.value = text; inp.focus(); }
+}
+function ownerBan(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr || usr.role==='creator') return;
+  if (!confirm('Permanently ban @' + usr.username + '?')) return;
+  usr.banned = true; usr.tempBanned = false;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {banned:true,tempBanned:false});
+  showNotif('🚫 @' + usr.username + ' permanently banned.', 'error');
+  saveReportsToStorage(); renderStats();
+}
+
+function ownerTempBan(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr || usr.role==='creator') return;
+  var days = prompt('Temp ban duration in days (e.g. 7):', '7');
+  if (!days || isNaN(days)) return;
+  usr.tempBanned = true;
+  usr.tempBanUntil = Date.now() + parseInt(days)*24*60*60*1000;
+  usr.tempBanReason = 'Owner action';
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {tempBanned:true,tempBanUntil:usr.tempBanUntil,tempBanReason:'Owner action'});
+  showNotif('⏳ @' + usr.username + ' temp banned for ' + days + ' days.', 'info');
+  saveReportsToStorage(); renderStats();
+}
+
+function ownerUnban(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.banned = false; usr.tempBanned = false; usr.tempBanUntil = null;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {banned:false,tempBanned:false,tempBanUntil:null});
+  showNotif('✓ @' + usr.username + ' unbanned.', 'success');
+  saveReportsToStorage(); renderStats();
+}
+
+function ownerVerify(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.verified = true;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {verified:true});
+  showNotif('✓ @' + usr.username + ' verified.', 'success');
+  renderStats();
+}
+
+function ownerUnverify(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.verified = false;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {verified:false});
+  showNotif('@' + usr.username + ' verification removed.', 'info');
+  renderStats();
+}
+
+function ownerGivePremium(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.premium = true;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {premium:true});
+  showNotif('⭐ @' + usr.username + ' given PRO.', 'success');
+  renderStats();
+}
+
+function ownerRemovePremium(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.premium = false;
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {premium:false});
+  showNotif('@' + usr.username + ' PRO removed.', 'info');
+  renderStats();
+}
+
+function ownerMakeAdmin(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr || usr.role==='creator') return;
+  usr.role = 'admin';
+  usr.adminPerms = ['ban','tempban','deleteComment','deleteVideo','reviewReport'];
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {role:'admin',adminPerms:usr.adminPerms});
+  showNotif('🛡️ @' + usr.username + ' is now Admin.', 'success');
+  renderStats();
+}
+
+function ownerRemoveAdmin(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr) return;
+  usr.role = 'user'; usr.adminPerms = [];
+  if (window.fbUpdateUser) window.fbUpdateUser(userId, {role:'user',adminPerms:[]});
+  showNotif('@' + usr.username + ' admin removed.', 'info');
+  renderStats();
+}
+
+function ownerDeleteUser(userId) {
+  var usr = state.users.find(function(u){return u.id==userId;});
+  if (!usr || usr.role==='creator') return;
+  if (!confirm('Permanently delete @' + usr.username + '\'s account? This cannot be undone!')) return;
+  state.users = state.users.filter(function(u){return u.id!=userId;});
+  state.posts = state.posts.filter(function(p){return p.authorId!=userId;});
+  state.textPosts = state.textPosts.filter(function(p){return p.authorId!=userId;});
+  state.shorts = state.shorts.filter(function(p){return p.authorId!=userId;});
+  if (window.fbUpdateUser) {
+    var { db } = window._fb || {};
+    if (db) db.collection('users').doc(userId).delete().catch(function(){});
+  }
+  showNotif('🗑️ @' + usr.username + ' deleted permanently.', 'error');
+  renderStats();
+}
+
+function ownerDeletePost(collection, postId) {
+  if (!confirm('Delete this post permanently?')) return;
+  if (collection === 'posts') state.posts = state.posts.filter(function(p){return p.id!=postId;});
+  if (collection === 'textPosts') state.textPosts = state.textPosts.filter(function(p){return p.id!=postId;});
+  if (collection === 'shorts') state.shorts = state.shorts.filter(function(p){return p.id!=postId;});
+  if (window._fb && window._fb.db) window._fb.db.collection(collection).doc(postId).delete().catch(function(){});
+  showNotif('Post deleted.', 'info');
+  renderStats();
+}
+
+function ownerDeleteAllContent() {
+  if (!confirm('Delete ALL posts, shorts, streams? This cannot be undone!')) return;
+  state.posts = []; state.textPosts = []; state.shorts = []; state.streams = [];
+  showNotif('All content deleted.', 'error');
+  renderStats();
+}
 // ═══════════════════════════════════════
 //  CREATOR PLATFORM CONTROLS
 // ═══════════════════════════════════════
