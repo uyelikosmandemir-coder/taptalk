@@ -2574,10 +2574,14 @@ function renderFeed() {
 }
 
 function buildVideoCard(post, author) {
-  const isLiked = post.liked;
+  const u = state.currentUser;
+  const isLiked = post.likedBy && post.likedBy[u.id];
   const verBadge = author.verified ? `<span class="verified-badge" title="Verified">✓</span>` : '';
   const premBadge = author.premium ? `<span class="premium-badge">PRO</span>` : '';
   const adminBadge = (author.role === 'admin' || author.role === 'creator') ? `<span class="admin-badge">${author.role.toUpperCase()}</span>` : '';
+  const cmtCount = (post.comments||[]).length;
+  const shareCount = post.shares || 0;
+  const viewCount = post.views || 0;
 
   const thumbHtml = post.mediaData
     ? (post.mediaType === 'video'
@@ -2590,31 +2594,44 @@ function buildVideoCard(post, author) {
     ${thumbHtml}
     <div class="card-body">
       <div class="card-author" onclick="openUserProfile('${author.id}')" style="cursor:pointer">
-        <div class="avatar" style="width:32px;height:32px;font-size:13px">${author.name[0]}</div>
+        <div class="avatar" style="width:36px;height:36px;font-size:14px">${author.name[0]}</div>
         <div>
           <div class="author-name">${escHtml(author.name)} ${verBadge} ${premBadge} ${adminBadge}</div>
-          <div style="font-size:11px;color:var(--text3)">@${escHtml(author.username)}</div>
+          <div style="font-size:11px;color:var(--text3)">@${escHtml(author.username)} · ${post.time}</div>
         </div>
       </div>
-      <div class="card-title">${escHtml(post.title)}</div>
-      <div class="card-meta">${post.views} views · ${post.time}</div>
+      <div class="card-title" style="margin:10px 0 6px">${escHtml(post.title)}</div>
+
+      <!-- İstatistik satırı: beğeni sayısı · yorum · paylaşım · görüntülenme -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;color:var(--text3)">
+        <div style="display:flex;align-items:center;gap:4px">
+          ${isLiked ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:var(--accent);border-radius:50%;font-size:10px">👍</span>` : ''}
+          <span id="likes-count-${post.id}">${post.likes > 0 ? formatNum(post.likes) : ''}</span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <span id="cmt-count-${post.id}" style="cursor:pointer" onclick="toggleComments('${post.id}')">${cmtCount > 0 ? cmtCount + ' comment' + (cmtCount > 1 ? 's' : '') : ''}</span>
+          <span>${shareCount > 0 ? formatNum(shareCount) + ' shares' : ''}</span>
+          <span>👁 ${formatNum(viewCount)}</span>
+        </div>
+      </div>
     </div>
-    <div class="card-actions">
-      <button class="action-btn ${isLiked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
-        <span class="star-anim" id="star-${post.id}">${isLiked
-          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
-          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'}</span>
-        <span id="likes-${post.id}">${formatNum(post.likes)}</span>
+
+    <!-- Aksiyon butonları — Facebook tarzı -->
+    <div style="display:flex;border-bottom:1px solid var(--border)">
+      <button onclick="toggleLike('${post.id}')" id="like-btn-${post.id}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:${isLiked ? 'var(--accent)' : 'var(--text2)'};border-radius:0;transition:background 0.15s;font-family:'DM Sans',sans-serif" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="${isLiked ? 'var(--accent)' : 'none'}" stroke="${isLiked ? 'var(--accent)' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+        Like
       </button>
-      <button class="action-btn" onclick="toggleComments('${post.id}')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        Comments
+      <button onclick="toggleComments('${post.id}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);border-radius:0;transition:background 0.15s;font-family:'DM Sans',sans-serif" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Comment
       </button>
-      <button class="action-btn" style="margin-left:auto" onclick="reportPost('${post.id}')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-        Report
+      <button onclick="sharePost('${post.id}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);border-radius:0;transition:background 0.15s;font-family:'DM Sans',sans-serif" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        Share
       </button>
     </div>
+
     <div id="comments-${post.id}" style="display:none">
       ${buildCommentsSection(post)}
     </div>
@@ -2705,6 +2722,13 @@ function sendComment(postId) {
   // Yorumları yenile
   const section = document.getElementById('comments-' + postId);
   if (section) { section.innerHTML = buildCommentsSection(post); section.style.display = 'block'; }
+
+  // İstatistik satırındaki yorum sayısını güncelle
+  const cmtCountEl = document.getElementById('cmt-count-' + postId);
+  if (cmtCountEl) {
+    const cnt = (post.comments||[]).length;
+    cmtCountEl.textContent = cnt > 0 ? cnt + ' comment' + (cnt > 1 ? 's' : '') : '';
+  }
 }
 
 function editComment(postId, idx) {
@@ -2761,27 +2785,66 @@ const SVG_STAR_EMPTY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="n
 function toggleLike(postId) {
   if (!state.platform.likesEnabled) { showNotif('Likes are disabled by the Creator.', 'error'); return; }
   const u = state.currentUser;
-  // Firestore string ID veya number ID ile çalışır
   const post = state.posts.find(p => String(p.id) === String(postId));
   if (!post) return;
   const isLiked = post.likedBy && post.likedBy[u.id];
-  const star = document.getElementById('star-' + postId);
-  const btn = document.querySelector('#card-' + postId + ' .action-btn');
   if (isLiked) {
     post.likes = Math.max(0, (post.likes || 1) - 1);
     if (post.likedBy) delete post.likedBy[u.id];
-    if (btn) btn.classList.remove('liked');
-    if (star) star.innerHTML = SVG_STAR_EMPTY;
   } else {
     post.likes = (post.likes || 0) + 1;
     if (!post.likedBy) post.likedBy = {};
     post.likedBy[u.id] = true;
-    if (btn) btn.classList.add('liked');
-    if (star) { star.innerHTML = SVG_STAR_FILLED; star.classList.add('pop'); setTimeout(() => star.classList.remove('pop'), 400); }
   }
-  const likesEl = document.getElementById('likes-' + postId);
-  if (likesEl) likesEl.textContent = formatNum(post.likes);
+  // Like butonu güncelle
+  const likeBtn = document.getElementById('like-btn-' + postId);
+  if (likeBtn) {
+    const nowLiked = !isLiked;
+    likeBtn.style.color = nowLiked ? 'var(--accent)' : 'var(--text2)';
+    likeBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="${nowLiked ? 'var(--accent)' : 'none'}" stroke="${nowLiked ? 'var(--accent)' : 'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like`;
+  }
+  // İstatistik satırı güncelle
+  const likesCountEl = document.getElementById('likes-count-' + postId);
+  if (likesCountEl) {
+    likesCountEl.innerHTML = post.likes > 0
+      ? `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:var(--accent);border-radius:50%;font-size:10px">👍</span> ${formatNum(post.likes)}`
+      : '';
+  }
   window.fbToggleLike('posts', String(postId), u.id, isLiked);
+}
+
+function sharePost(postId) {
+  const post = state.posts.find(p => String(p.id) === String(postId)) ||
+               state.textPosts.find(p => String(p.id) === String(postId));
+  if (!post) return;
+  // Paylaşım sayısını artır
+  post.shares = (post.shares || 0) + 1;
+
+  // URL kopyala
+  const shareUrl = window.location.href.split('#')[0] + '#post-' + postId;
+  if (navigator.share) {
+    navigator.share({ title: post.title || 'TapTalk Post', url: shareUrl })
+      .catch(() => copyToClipboard(shareUrl));
+  } else {
+    copyToClipboard(shareUrl);
+  }
+  showNotif('🔗 Link copied to clipboard!', 'success');
+  // Kart güncelle
+  const card = document.getElementById('card-' + postId);
+  if (card) {
+    const shareSpan = card.querySelectorAll('[style*="shares"]');
+  }
+}
+
+function copyToClipboard(text) {
+  try {
+    navigator.clipboard.writeText(text);
+  } catch(e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
 }
 
 function likeTextPost(postId, btn) {
@@ -3060,38 +3123,58 @@ function renderShorts() {
     const author = state.users.find(x => x.id === s.authorId) || {};
     const verBadge = author.verified ? ' ✓' : '';
     const isLast = idx === state.shorts.length - 1;
+    const sid = String(s.id);
+    const isLiked = s.likedBy && s.likedBy[state.currentUser.id];
 
     const bgContent = s.mediaData
-      ? `<video src="${s.mediaData}" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" loop playsinline muted></video>`
-      : `<div style="width:100%;height:100%;background:${s.gradient};position:absolute;inset:0"></div><div class="short-play-icon">▶</div>`;
+      ? `<video id="short-vid-${sid}" src="${s.mediaData}" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0" loop playsinline muted></video>`
+      : `<div style="width:100%;height:100%;background:${s.gradient};position:absolute;inset:0"></div>`;
 
-    return `<div class="short-card" data-short-id="${s.id}">
+    return `<div class="short-card" data-short-id="${sid}" onclick="toggleShortPlay('${sid}')">
       <div class="short-bg">${bgContent}</div>
       <div class="short-overlay"></div>
-      <div class="short-views-badge">👁 ${s.views}</div>
+
+      <!-- Sol üst: Sessize al + Durdur butonları -->
+      <div style="position:absolute;top:16px;left:16px;display:flex;gap:8px;z-index:10" onclick="event.stopPropagation()">
+        <button id="short-mute-btn-${sid}" onclick="toggleShortMute('${sid}')" style="width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,0.45);backdrop-filter:blur(8px);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:white">
+          <svg id="short-mute-icon-${sid}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </button>
+        <button id="short-play-btn-${sid}" onclick="toggleShortPlay('${sid}')" style="width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,0.45);backdrop-filter:blur(8px);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:white">
+          <svg id="short-play-icon-${sid}" width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </button>
+      </div>
+
+      <!-- Görüntülenme -->
+      <div class="short-views-badge" style="top:16px;right:16px;left:auto">👁 ${s.views||0}</div>
+
+      <!-- Alt bilgi -->
       <div class="short-info">
         <div class="short-author">
           <div class="avatar" style="width:32px;height:32px;font-size:13px;border:2px solid white;flex-shrink:0">${(author.name||'?')[0]}</div>
           <span style="font-weight:700">@${escHtml(author.username || '')}${verBadge}</span>
         </div>
-        <div class="short-title" id="short-desc-${s.id}" onclick="event.stopPropagation();toggleShortDesc(${s.id})" style="cursor:pointer">
-          <span id="short-desc-text-${s.id}" data-full="${escHtml(s.title)}">${s.title.length > 60 ? escHtml(s.title.slice(0,60)) + '<span style="color:rgba(255,255,255,0.5);font-size:12px">... more</span>' : escHtml(s.title)}</span>
+        <div class="short-title" id="short-desc-${sid}" onclick="event.stopPropagation();toggleShortDesc('${sid}')" style="cursor:pointer">
+          <span id="short-desc-text-${sid}" data-full="${escHtml(s.title)}">${s.title.length > 60 ? escHtml(s.title.slice(0,60)) + '<span style="color:rgba(255,255,255,0.5);font-size:12px">... more</span>' : escHtml(s.title)}</span>
         </div>
       </div>
-      <div class="short-actions">
-        <button class="short-action-btn" onclick="event.stopPropagation();likeShortItem(${s.id},this)">
-          <span id="short-star-${s.id}" style="font-size:28px;line-height:1">${s.liked ? '⭐' : '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'}</span>
-          <span class="short-action-label" id="short-likes-${s.id}">${formatNum(s.likes)}</span>
+
+      <!-- Sağ aksiyon butonları -->
+      <div class="short-actions" onclick="event.stopPropagation()">
+        <button class="short-action-btn" onclick="likeShortItem('${sid}',this)">
+          <span id="short-star-${sid}" style="font-size:28px;line-height:1">${isLiked
+            ? '<svg width="28" height="28" viewBox="0 0 24 24" fill="#FFD700" stroke="#FFD700" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
+            : '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'}</span>
+          <span class="short-action-label" id="short-likes-${sid}">${formatNum(s.likes||0)}</span>
         </button>
-        <button class="short-action-btn" onclick="event.stopPropagation();openShortComments(${s.id})">
+        <button class="short-action-btn" onclick="openShortComments('${sid}')">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span class="short-action-label" id="short-cmt-${s.id}">${(s.comments||[]).length}</span>
+          <span class="short-action-label" id="short-cmt-${sid}">${(s.comments||[]).length}</span>
         </button>
-        <button class="short-action-btn" onclick="event.stopPropagation();reportPost(${s.id})">
+        <button class="short-action-btn" onclick="reportPost('${sid}')">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
           <span class="short-action-label">Report</span>
         </button>
-        <button class="short-action-btn" onclick="event.stopPropagation();openUserProfile(${s.authorId})">
+        <button class="short-action-btn" onclick="openUserProfile('${s.authorId}')">
           <div class="avatar" style="width:40px;height:40px;font-size:16px;border:2.5px solid white">${(author.name||'?')[0]}</div>
           <span class="short-action-label">Profile</span>
         </button>
@@ -3105,19 +3188,25 @@ function renderShorts() {
 }
 
 function setupShortsAutoplay() {
-  // Pause all videos first
   document.querySelectorAll('#shorts-viewer video').forEach(v => { v.pause(); v.currentTime = 0; });
 
   const observer = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
       const card = entry.target;
+      const sid = card.getAttribute('data-short-id');
       const vid = card.querySelector('video');
+      const playIcon = document.getElementById('short-play-icon-' + sid);
       if (entry.isIntersecting && entry.intersectionRatio >= 0.8) {
-        // This card is visible — play it
-        if (vid) { vid.muted = false; vid.play().catch(function(){ vid.muted = true; vid.play(); }); }
+        if (vid) {
+          vid.play().catch(function(){ vid.muted = true; vid.play(); });
+          // Oynatma ikonu: pause göster
+          if (playIcon) playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+        }
       } else {
-        // Out of view — pause
-        if (vid) { vid.pause(); }
+        if (vid) {
+          vid.pause();
+          if (playIcon) playIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+        }
       }
     });
   }, { threshold: 0.8 });
@@ -3125,6 +3214,34 @@ function setupShortsAutoplay() {
   document.querySelectorAll('.short-card').forEach(function(card) {
     observer.observe(card);
   });
+}
+
+function toggleShortMute(sid) {
+  const vid = document.getElementById('short-vid-' + sid);
+  if (!vid) return;
+  vid.muted = !vid.muted;
+  const icon = document.getElementById('short-mute-icon-' + sid);
+  if (!icon) return;
+  if (vid.muted) {
+    // Sessiz ikonu
+    icon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>';
+  } else {
+    // Sesli ikonu
+    icon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
+  }
+}
+
+function toggleShortPlay(sid) {
+  const vid = document.getElementById('short-vid-' + sid);
+  if (!vid) return;
+  const playIcon = document.getElementById('short-play-icon-' + sid);
+  if (vid.paused) {
+    vid.play();
+    if (playIcon) playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>';
+  } else {
+    vid.pause();
+    if (playIcon) playIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+  }
 }
 
 function toggleShortDesc(id) {
