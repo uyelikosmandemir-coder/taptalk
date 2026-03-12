@@ -141,30 +141,25 @@ window.listenNotifications = function(userId) {
     });
 };
 
-// ─── Tüm verileri yükle + gerçek zamanlı dinle ───
+// ─── Load all data + real-time listeners ───
 window.loadAllData = async function() {
-  _db.collection('posts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
-    state.posts = [];
-    snap.forEach(d => state.posts.push({ id: d.id, ...d.data() }));
-    if (state.currentUser) {
-      renderFeed();
-      if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
-        renderProfile();
+
+  // 1. Önce users'ı bekle (author bilgisi olmadan feed render edilemiyor)
+  await new Promise(resolve => {
+    const unsub = _db.collection('users').onSnapshot(snap => {
+      state.users = [];
+      snap.forEach(d => state.users.push({ id: d.id, ...d.data() }));
+      if (state.currentUser) {
+        const me = state.users.find(u => u.id === state.currentUser.id);
+        if (me) Object.assign(state.currentUser, me);
       }
-    }
+      resolve(); // ilk yüklenişte devam et
+      // Sonraki güncellemelerde de çalışmaya devam et
+      unsub(); // ilk listener'ı kapat
+    });
   });
-  _db.collection('textPosts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
-    state.textPosts = [];
-    snap.forEach(d => state.textPosts.push({ id: d.id, ...d.data() }));
-    if (state.currentUser) renderTextPosts();
-  });
-  _db.collection('shorts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
-    state.shorts = [];
-    snap.forEach(d => state.shorts.push({ id: d.id, ...d.data() }));
-    if (state.currentUser && document.getElementById('page-shorts') && document.getElementById('page-shorts').classList.contains('active')) {
-      renderShorts();
-    }
-  });
+
+  // Users yüklendi — şimdi kalıcı listener kur
   _db.collection('users').onSnapshot(snap => {
     state.users = [];
     snap.forEach(d => state.users.push({ id: d.id, ...d.data() }));
@@ -176,6 +171,38 @@ window.loadAllData = async function() {
           renderProfile();
         }
       }
+      // Users değişince feed'i de yenile (profil resimleri vb.)
+      if (document.getElementById('page-home') && document.getElementById('page-home').classList.contains('active')) {
+        renderFeed();
+      }
+    }
+  });
+
+  // 2. Posts — users hazır olduğu için render güvenli
+  _db.collection('posts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
+    state.posts = [];
+    snap.forEach(d => state.posts.push({ id: d.id, ...d.data() }));
+    if (state.currentUser) {
+      renderFeed();
+      if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
+        renderProfile();
+      }
+    }
+  });
+
+  // 3. Text posts
+  _db.collection('textPosts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
+    state.textPosts = [];
+    snap.forEach(d => state.textPosts.push({ id: d.id, ...d.data() }));
+    if (state.currentUser) renderTextPosts();
+  });
+
+  // 4. Shorts
+  _db.collection('shorts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
+    state.shorts = [];
+    snap.forEach(d => state.shorts.push({ id: d.id, ...d.data() }));
+    if (state.currentUser && document.getElementById('page-shorts') && document.getElementById('page-shorts').classList.contains('active')) {
+      renderShorts();
     }
   });
 };
@@ -2676,8 +2703,11 @@ function renderFeed() {
 
   const cards = [];
   state.posts.forEach(post => {
-    const author = state.users.find(x => x.id === post.authorId);
-    if (!author) return;
+    let author = state.users.find(x => x.id === post.authorId);
+    // Author henüz yüklenmediyse geçici placeholder kullan
+    if (!author) {
+      author = { id: post.authorId, name: 'User', username: 'user', verified: false, premium: false, role: 'user' };
+    }
     cards.push(buildVideoCard(post, author));
   });
 
