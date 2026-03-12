@@ -1373,16 +1373,37 @@ console.log('✅ Firebase hazır!');
 
     <div class="form-group">
       <label class="form-label">Email or Username</label>
-      <input type="text" class="form-input" id="login-user" placeholder="you@example.com">
+      <input type="text" class="form-input" id="login-user" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doLogin()">
     </div>
     <div class="form-group">
       <label class="form-label">Password</label>
-      <input type="password" class="form-input" id="login-pass" placeholder="••••••••">
+      <input type="password" class="form-input" id="login-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
       <div class="error-msg" id="login-error">Invalid email or password.</div>
     </div>
-    <button class="btn-primary" onclick="doLogin()">Sign In</button>
+    <div style="text-align:right;margin:-8px 0 12px">
+      <a onclick="showForgotPassword()" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Şifremi unuttum</a>
+    </div>
+    <button class="btn-primary" id="login-btn" onclick="doLogin()">Sign In</button>
     <div class="auth-switch">
       No account? <a onclick="showRegister()">Create one</a>
+    </div>
+  </div>
+
+  <!-- FORGOT PASSWORD -->
+  <div class="auth-card" id="forgot-card" style="display:none">
+    <div class="logo-big">TapTalk</div>
+    <p class="auth-subtitle">Şifre sıfırlama 🔑</p>
+    <div class="form-group">
+      <label class="form-label">E-posta adresin</label>
+      <input type="email" class="form-input" id="forgot-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doForgotPassword()">
+      <div class="error-msg" id="forgot-error"></div>
+      <div id="forgot-success" style="display:none;color:#22c55e;font-size:13px;margin-top:8px;padding:10px;background:rgba(34,197,94,0.1);border-radius:8px;text-align:center">
+        ✅ Sıfırlama e-postası gönderildi! Gelen kutunu kontrol et.
+      </div>
+    </div>
+    <button class="btn-primary" id="forgot-btn" onclick="doForgotPassword()">Sıfırlama E-postası Gönder</button>
+    <div class="auth-switch">
+      <a onclick="showLogin()" style="cursor:pointer">← Girişe dön</a>
     </div>
   </div>
 
@@ -2429,19 +2450,75 @@ function liveCheckInput(inputEl, btnEl) {
 function showLogin() {
   document.getElementById('login-card').style.display = 'block';
   document.getElementById('register-card').style.display = 'none';
+  if (document.getElementById('forgot-card')) document.getElementById('forgot-card').style.display = 'none';
 }
 
 function showRegister() {
   document.getElementById('login-card').style.display = 'none';
   document.getElementById('register-card').style.display = 'block';
+  if (document.getElementById('forgot-card')) document.getElementById('forgot-card').style.display = 'none';
+}
+
+function showForgotPassword() {
+  document.getElementById('login-card').style.display = 'none';
+  document.getElementById('register-card').style.display = 'none';
+  document.getElementById('forgot-card').style.display = 'block';
+  document.getElementById('forgot-error').style.display = 'none';
+  document.getElementById('forgot-success').style.display = 'none';
+  const inp = document.getElementById('forgot-email');
+  // Giriş sayfasındaki emaili otomatik doldur
+  const loginEmail = document.getElementById('login-user').value.trim();
+  if (inp && loginEmail.includes('@')) inp.value = loginEmail;
+  setTimeout(function(){ if(inp) inp.focus(); }, 100);
+}
+
+function doForgotPassword() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('forgot-error');
+  const sucEl = document.getElementById('forgot-success');
+  const btn = document.getElementById('forgot-btn');
+
+  errEl.style.display = 'none';
+  sucEl.style.display = 'none';
+
+  if (!email || !email.includes('@')) {
+    errEl.style.display = 'block';
+    errEl.textContent = 'Geçerli bir e-posta girin.';
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Gönderiliyor...'; }
+
+  // Firebase password reset
+  if (typeof firebase !== 'undefined' && firebase.auth) {
+    firebase.auth().sendPasswordResetEmail(email)
+      .then(function() {
+        sucEl.style.display = 'block';
+        if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+      })
+      .catch(function(e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+        errEl.style.display = 'block';
+        if (e.code === 'auth/user-not-found') {
+          errEl.textContent = 'Bu e-posta ile kayıtlı hesap bulunamadı.';
+        } else {
+          errEl.textContent = 'Hata: ' + e.message;
+        }
+      });
+  } else {
+    errEl.style.display = 'block';
+    errEl.textContent = 'Bu özellik sadece canlı sitede çalışır.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+  }
 }
 
 function doLogin() {
   const user_input = document.getElementById('login-user').value.trim().toLowerCase();
   const pass = document.getElementById('login-pass').value;
   const err = document.getElementById('login-error');
-  const btn = document.querySelector('#auth-screen .btn-primary');
+  const btn = document.getElementById('login-btn');
 
+  err.style.display = 'none';
   if (!user_input || !pass) { err.style.display = 'block'; err.textContent = 'E-posta ve şifre girin.'; return; }
 
   if (btn) { btn.disabled = true; btn.textContent = 'Giriş yapılıyor...'; }
@@ -2450,15 +2527,19 @@ function doLogin() {
   const email = user_input.includes('@') ? user_input : user_input + '@taptalk.fake';
   window.fbLogin(user_input.includes('@') ? user_input : (() => {
     // Username ile giriş — önce email'i bul
-    const found = state.users.find(u => u.username.toLowerCase() === user_input);
+    const found = state.users.find(u => u.username && u.username.toLowerCase() === user_input);
     return found ? found.email : user_input;
   })(), pass).then(result => {
-    if (btn) { btn.disabled = false; btn.textContent = 'Log In'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     if (!result.ok) {
       err.style.display = 'block';
       err.textContent = result.msg || 'E-posta veya şifre yanlış.';
     }
     // Başarılıysa onAuthStateChanged otomatik tetikler
+  }).catch(function(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
+    err.style.display = 'block';
+    err.textContent = 'Giriş başarısız. Lütfen tekrar deneyin.';
   });
 }
 
