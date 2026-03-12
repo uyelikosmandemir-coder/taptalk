@@ -12,7 +12,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
-// Firebase yüklendi mi kontrol et
+// Check if Firebase is loaded
 var _firebaseReady = typeof firebase !== 'undefined';
 
 if (_firebaseReady) {
@@ -46,9 +46,9 @@ window.fbRegister = async function(email, password, username, name, dob) {
     state.currentUser = { ...newUser, firebaseUid: uid };
     return { ok: true };
   } catch(e) {
-    if (e.code === 'auth/email-already-in-use') return { ok: false, msg: 'Bu e-posta zaten kayıtlı.' };
-    if (e.code === 'auth/weak-password') return { ok: false, msg: 'Şifre en az 6 karakter olmalı.' };
-    return { ok: false, msg: 'Kayıt başarısız: ' + e.message };
+    if (e.code === 'auth/email-already-in-use') return { ok: false, msg: 'This email is already registered.' };
+    if (e.code === 'auth/weak-password') return { ok: false, msg: 'Password must be at least 6 characters.' };
+    return { ok: false, msg: 'Registration failed: ' + e.message };
   }
 };
 
@@ -58,7 +58,7 @@ window.fbLogin = async function(email, password) {
     await _auth.signInWithEmailAndPassword(email, password);
     return { ok: true };
   } catch(e) {
-    return { ok: false, msg: 'E-posta veya şifre yanlış.' };
+    return { ok: false, msg: 'Incorrect email or password.' };
   }
 };
 
@@ -200,8 +200,8 @@ _auth.onAuthStateChanged(async (firebaseUser) => {
 console.log('✅ Firebase hazır!');
 
 } else {
-  // Firebase yüklenemedi — yerel mod (test/preview ortamı)
-  console.warn('⚠️ Firebase CDN yüklenemedi. Yerel test modu aktif.');
+  // Firebase failed to load — local mode (test/preview environment)
+  console.warn('⚠️ Firebase CDN failed to load. Local test mode active.');
 
   window.fbRegister = async function(email, password, username, name, dob) {
     const uid = 'local_' + Date.now();
@@ -219,7 +219,7 @@ console.log('✅ Firebase hazır!');
 
   window.fbLogin = async function(email, password) {
     const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) return { ok: false, msg: 'Kullanıcı bulunamadı.' };
+    if (!user) return { ok: false, msg: 'User not found.' };
     state.currentUser = user;
     return { ok: true };
   };
@@ -1381,7 +1381,7 @@ console.log('✅ Firebase hazır!');
       <div class="error-msg" id="login-error">Invalid email or password.</div>
     </div>
     <div style="text-align:right;margin:-8px 0 12px">
-      <a onclick="showForgotPassword()" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Şifremi unuttum</a>
+      <a onclick="showForgotPassword()" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Forgot password?</a>
     </div>
     <button class="btn-primary" id="login-btn" onclick="doLogin()">Sign In</button>
     <div class="auth-switch">
@@ -1392,18 +1392,18 @@ console.log('✅ Firebase hazır!');
   <!-- FORGOT PASSWORD -->
   <div class="auth-card" id="forgot-card" style="display:none">
     <div class="logo-big">TapTalk</div>
-    <p class="auth-subtitle">Şifre sıfırlama 🔑</p>
+    <p class="auth-subtitle">Password Reset 🔑</p>
     <div class="form-group">
-      <label class="form-label">E-posta adresin</label>
+      <label class="form-label">Your email address</label>
       <input type="email" class="form-input" id="forgot-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doForgotPassword()">
       <div class="error-msg" id="forgot-error"></div>
       <div id="forgot-success" style="display:none;color:#22c55e;font-size:13px;margin-top:8px;padding:10px;background:rgba(34,197,94,0.1);border-radius:8px;text-align:center">
-        ✅ Sıfırlama e-postası gönderildi! Gelen kutunu kontrol et.
+        ✅ Reset email sent! Check your inbox.
       </div>
     </div>
-    <button class="btn-primary" id="forgot-btn" onclick="doForgotPassword()">Sıfırlama E-postası Gönder</button>
+    <button class="btn-primary" id="forgot-btn" onclick="doForgotPassword()">Send Reset Email</button>
     <div class="auth-switch">
-      <a onclick="showLogin()" style="cursor:pointer">← Girişe dön</a>
+      <a onclick="showLogin()" style="cursor:pointer">← Back to sign in</a>
     </div>
   </div>
 
@@ -1798,20 +1798,20 @@ console.log('✅ Firebase hazır!');
 <div id="short-comments-modal" onclick="if(event.target===this)closeShortComments()" style="position:fixed;inset:0;z-index:1000;display:none;align-items:stretch;justify-content:flex-end">
   <!-- Karartma -->
   <div onclick="closeShortComments()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4);backdrop-filter:blur(2px)"></div>
-  <!-- Sağ panel -->
+  <!-- Right panel -->
   <div style="position:relative;width:min(420px,100vw);background:var(--surface);display:flex;flex-direction:column;height:100vh;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1)" id="short-cmt-panel">
-    <!-- Başlık -->
+    <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
       <div style="font-family:Syne,sans-serif;font-size:17px;font-weight:800">💬 Comments <span id="short-cmt-count" style="color:var(--text3);font-size:13px;font-weight:400"></span></div>
       <button onclick="closeShortComments()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">✕</button>
     </div>
-    <!-- Yorum listesi -->
+    <!-- Comments list -->
     <div id="short-comments-list" style="overflow-y:auto;flex:1;padding:14px 16px"></div>
-    <!-- Yorum yazma -->
+    <!-- Comment input -->
     <div style="padding:12px 16px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:flex-end;flex-shrink:0;background:var(--surface)">
       <div class="avatar" id="short-cmt-avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0"></div>
-      <textarea id="short-cmt-input" class="form-input" placeholder="Yorum yaz..." rows="1" maxlength="300" style="resize:none;flex:1;padding:10px 14px;font-size:13px;border-radius:14px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendShortComment();}"></textarea>
-      <button onclick="sendShortComment()" style="background:var(--accent);border:none;border-radius:14px;padding:10px 18px;color:white;font-weight:700;cursor:pointer;font-size:13px;white-space:nowrap;height:42px">Gönder</button>
+      <textarea id="short-cmt-input" class="form-input" placeholder="Write a comment..." rows="1" maxlength="300" style="resize:none;flex:1;padding:10px 14px;font-size:13px;border-radius:14px" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendShortComment();}"></textarea>
+      <button onclick="sendShortComment()" style="background:var(--accent);border:none;border-radius:14px;padding:10px 18px;color:white;font-weight:700;cursor:pointer;font-size:13px;white-space:nowrap;height:42px">Send</button>
     </div>
   </div>
 </div>
@@ -2255,12 +2255,12 @@ function showAPIKeySetup() {
   modal.innerHTML = `
     <div style="background:var(--surface);border-radius:20px;padding:28px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
       <div style="font-size:32px;text-align:center;margin-bottom:12px">🤖</div>
-      <div style="font-size:18px;font-weight:800;text-align:center;margin-bottom:6px;font-family:Syne,sans-serif">AI Moderasyon Kurulumu</div>
-      <div style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px">OpenAI API key'ini gir. Tarayıcında güvenle saklanır, bir daha sorulmaz.</div>
+      <div style="font-size:18px;font-weight:800;text-align:center;margin-bottom:6px;font-family:Syne,sans-serif">AI Moderation Setup</div>
+      <div style="font-size:13px;color:var(--text3);text-align:center;margin-bottom:20px">Enter your OpenAI API key. Saved securely in your browser, never asked again.</div>
       <input id="api-key-input" type="password" placeholder="sk-proj-..." style="width:100%;padding:12px 16px;border:2px solid var(--border);border-radius:12px;font-size:13px;background:var(--surface2);color:var(--text);font-family:'DM Sans',sans-serif;box-sizing:border-box;margin-bottom:12px">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">🔒 Key sadece senin tarayıcında saklanır. GitHub'da veya sunucuda olmaz.</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">🔒 Key is stored only in your browser. Never in GitHub or on the server.</div>
       <div style="display:flex;gap:10px">
-        <button onclick="saveAPIKey()" style="flex:1;padding:12px;background:var(--accent);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Kaydet & Aktifleştir</button>
+        <button onclick="saveAPIKey()" style="flex:1;padding:12px;background:var(--accent);border:none;border-radius:12px;color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Save & Activate</button>
         <button onclick="document.getElementById('api-key-setup-modal').remove()" style="padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;color:var(--text2);font-size:14px;cursor:pointer">Atla</button>
       </div>
     </div>`;
@@ -2271,17 +2271,17 @@ function showAPIKeySetup() {
 function saveAPIKey() {
   var inp = document.getElementById('api-key-input');
   if (!inp || !inp.value.trim().startsWith('sk-')) {
-    showNotif('❌ Geçersiz API key. "sk-" ile başlamalı.', 'error');
+    showNotif('❌ Invalid API key. Must start with "sk-".', 'error');
     return;
   }
   setOAIKey(inp.value.trim());
   document.getElementById('api-key-setup-modal').remove();
-  showNotif('✅ AI Moderasyon aktif!', 'success');
+  showNotif('✅ AI Moderation active!', 'success');
 }
 
 function resetAPIKey() {
   try { localStorage.removeItem('taptalk_oai_key'); } catch(e) {}
-  showNotif('API key silindi.', 'info');
+  showNotif('API key removed.', 'info');
   showAPIKeySetup();
 }
 
@@ -2348,7 +2348,7 @@ autoAction=true only for critical/high priority.`;
 var _aiChatHistory = [];
 async function gptAdminChat(userMessage) {
   const key = getOAIKey();
-  if (!key) { showAPIKeySetup(); return 'API key gerekli. Lütfen ayarla.'; }
+  if (!key) { showAPIKeySetup(); return 'API key required. Please set it up.'; }
 
   const platformContext = `You are TapTalk's owner AI assistant. Platform stats:
 - Total users: ${state.users.length}
@@ -2483,32 +2483,32 @@ function doForgotPassword() {
 
   if (!email || !email.includes('@')) {
     errEl.style.display = 'block';
-    errEl.textContent = 'Geçerli bir e-posta girin.';
+    errEl.textContent = 'Please enter a valid email.';
     return;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = 'Gönderiliyor...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Sendiliyor...'; }
 
   // Firebase password reset
   if (typeof firebase !== 'undefined' && firebase.auth) {
     firebase.auth().sendPasswordResetEmail(email)
       .then(function() {
         sucEl.style.display = 'block';
-        if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Email'; }
       })
       .catch(function(e) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Email'; }
         errEl.style.display = 'block';
         if (e.code === 'auth/user-not-found') {
-          errEl.textContent = 'Bu e-posta ile kayıtlı hesap bulunamadı.';
+          errEl.textContent = 'No account found with this email.';
         } else {
           errEl.textContent = 'Hata: ' + e.message;
         }
       });
   } else {
     errEl.style.display = 'block';
-    errEl.textContent = 'Bu özellik sadece canlı sitede çalışır.';
-    if (btn) { btn.disabled = false; btn.textContent = 'Sıfırlama E-postası Gönder'; }
+    errEl.textContent = 'This feature only works on the live site.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Email'; }
   }
 }
 
@@ -2519,11 +2519,11 @@ function doLogin() {
   const btn = document.getElementById('login-btn');
 
   err.style.display = 'none';
-  if (!user_input || !pass) { err.style.display = 'block'; err.textContent = 'E-posta ve şifre girin.'; return; }
+  if (!user_input || !pass) { err.style.display = 'block'; err.textContent = 'Please enter your email and password.'; return; }
 
-  if (btn) { btn.disabled = true; btn.textContent = 'Giriş yapılıyor...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
 
-  // E-posta ile giriş (Firebase)
+  // Sign in with email (Firebase)
   const email = user_input.includes('@') ? user_input : user_input + '@taptalk.fake';
   window.fbLogin(user_input.includes('@') ? user_input : (() => {
     // Username ile giriş — önce email'i bul
@@ -2533,13 +2533,13 @@ function doLogin() {
     if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     if (!result.ok) {
       err.style.display = 'block';
-      err.textContent = result.msg || 'E-posta veya şifre yanlış.';
+      err.textContent = result.msg || 'Incorrect email or password.';
     }
     // Başarılıysa onAuthStateChanged otomatik tetikler
   }).catch(function(e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     err.style.display = 'block';
-    err.textContent = 'Giriş başarısız. Lütfen tekrar deneyin.';
+    err.textContent = 'Sign in failed. Please try again.';
   });
 }
 
@@ -2683,7 +2683,7 @@ function renderFeed() {
 
   container.innerHTML = cards.length
     ? cards.join('')
-    : '<div style="text-align:center;padding:60px 20px;color:var(--text3)"><div style="font-size:40px;margin-bottom:12px">📹</div><div style="font-size:16px;font-weight:600">Henüz video yok</div><div style="font-size:13px;margin-top:6px">İlk videoyu paylaş!</div></div>';
+    : '<div style="text-align:center;padding:60px 20px;color:var(--text3)"><div style="font-size:40px;margin-bottom:12px">📹</div><div style="font-size:16px;font-weight:600">No videos yet</div><div style="font-size:13px;margin-top:6px">Be the first to post!</div></div>';
 }
 
 function buildVideoCard(post, author) {
@@ -2941,7 +2941,7 @@ function sharePost(postId) {
   const post = state.posts.find(p => String(p.id) === String(postId)) ||
                state.textPosts.find(p => String(p.id) === String(postId));
   if (!post) return;
-  // Paylaşım sayısını artır
+  // Increment share count
   post.shares = (post.shares || 0) + 1;
 
   // URL kopyala
@@ -3001,7 +3001,7 @@ function publishPost() {
   ];
 
   const btn = document.getElementById('publish-post-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Yayınlanıyor...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Publishing...'; }
 
   getMediaDataUrl('video-file', function(mediaData) {
     // Dosya tipini belirle
@@ -3029,7 +3029,7 @@ function publishPost() {
       if (btn) { btn.disabled = false; btn.textContent = 'Publish'; }
       document.getElementById('post-text').value = '';
       clearMedia('video-preview-wrap','video-file','video-preview');
-      showNotif('Yayınlandı! 🎉', 'success');
+      showNotif('Published! 🎉', 'success');
       window.fbUpdateUser(u.id, { videos: (u.videos || 0) + 1 });
       checkAutoVerify(u);
       // Profil sayfasını hemen güncelle
@@ -3088,11 +3088,11 @@ function getMediaDataUrl(inputId, callback) {
     try {
       var storage = firebase.storage();
       var storageRef = storage.ref('media/' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._]/g, '_'));
-      showNotif('⏫ Video yükleniyor...', 'info');
+      showNotif('⏫ Uploading video...', 'info');
       storageRef.put(file).then(function(snapshot) {
         return snapshot.ref.getDownloadURL();
       }).then(function(url) {
-        showNotif('✅ Video yüklendi!', 'success');
+        showNotif('✅ Video uploaded!', 'success');
         callback(url);
       }).catch(function(err) {
         console.warn('Storage hatası, base64 kullanılıyor:', err);
@@ -3240,7 +3240,7 @@ function publishTextPost() {
     }).then(() => {
       document.getElementById('post-text-post').value = '';
       clearMedia('photo-preview-wrap','photo-file','photo-preview');
-      showNotif('Paylaşıldı! 🎉', 'success');
+      showNotif('Shared! 🎉', 'success');
     });
   });
 }
@@ -4286,6 +4286,7 @@ function showPage(name) {
   if (name === 'requests') renderRequestsPage();
   if (name === 'home' || name === 'feed') renderFeed();
   if (name === 'shorts') renderShorts();
+}
 
 // ═══════════════════════════════════════
 //  USER PROFILE MODAL (view any profile)
@@ -5455,10 +5456,10 @@ function renderStats() {
 
     html += '<div style="background:linear-gradient(135deg,rgba(124,92,252,0.1),rgba(252,92,125,0.1));border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">' +
       '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🤖</div>' +
-      '<div style="flex:1"><div style="font-size:14px;font-weight:700">TapTalk AI Assistant</div><div style="font-size:12px;color:var(--text3)">Powered by GPT-4o · ' + (getOAIKey() ? '✅ API Key aktif' : '⚠️ API Key girilmedi') + '</div></div>' +
+      '<div style="flex:1"><div style="font-size:14px;font-weight:700">TapTalk AI Assistant</div><div style="font-size:12px;color:var(--text3)">Powered by GPT-4o · ' + (getOAIKey() ? '✅ API Key active' : '⚠️ API Key not set') + '</div></div>' +
       (getOAIKey()
-        ? '<button onclick="resetAPIKey()" style="padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);font-size:11px;cursor:pointer">🔑 Key değiştir</button>'
-        : '<button onclick="showAPIKeySetup()" style="padding:6px 12px;border-radius:20px;border:none;background:var(--accent);color:white;font-size:11px;font-weight:700;cursor:pointer">+ API Key Gir</button>') +
+        ? '<button onclick="resetAPIKey()" style="padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);font-size:11px;cursor:pointer">🔑 Change Key</button>'
+        : '<button onclick="showAPIKeySetup()" style="padding:6px 12px;border-radius:20px;border:none;background:var(--accent);color:white;font-size:11px;font-weight:700;cursor:pointer">+ Add API Key</button>') +
     '</div>';
 
     // Chat messages
