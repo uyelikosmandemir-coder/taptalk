@@ -1866,6 +1866,80 @@ console.log('✅ Firebase hazır!');
   </div>
 </div>
 
+<!-- SHARE MODAL -->
+<div id="share-modal" style="position:fixed;inset:0;z-index:1000;display:none;align-items:flex-end;justify-content:center" onclick="if(event.target===this)closeShareModal()">
+  <div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(3px)" onclick="closeShareModal()"></div>
+  <div id="share-panel" style="position:relative;width:100%;max-width:560px;background:var(--surface);border-radius:24px 24px 0 0;padding:0 0 28px;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);max-height:90vh;overflow-y:auto">
+
+    <!-- Handle -->
+    <div style="display:flex;justify-content:center;padding:12px 0 4px">
+      <div style="width:40px;height:4px;background:var(--border);border-radius:2px"></div>
+    </div>
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 20px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-family:Syne,sans-serif;font-size:17px;font-weight:800">Share</div>
+      <button onclick="closeShareModal()" style="width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;color:var(--text2)">✕</button>
+    </div>
+
+    <!-- Share to your profile -->
+    <div style="padding:16px 20px 0">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Share to your profile</div>
+      <div id="share-profile-row" style="display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:14px 16px;cursor:pointer;transition:border-color 0.2s" onclick="shareToProfile()" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div id="share-my-avatar" style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:18px;flex-shrink:0"></div>
+        <div style="flex:1">
+          <div id="share-my-name" style="font-weight:700;font-size:14px"></div>
+          <div style="font-size:12px;color:var(--text3)">Share to your feed</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <!-- Send to a friend -->
+    <div style="padding:16px 20px 0">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Send to a friend</div>
+      <div id="share-friends-list" style="display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none"></div>
+    </div>
+
+    <!-- Other apps -->
+    <div style="padding:16px 20px 0">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Share via</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+
+        <button onclick="shareVia('whatsapp')" style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:8px;border-radius:12px;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+          <div style="width:52px;height:52px;border-radius:16px;background:#25D366;display:flex;align-items:center;justify-content:center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+          </div>
+          <span style="font-size:11px;color:var(--text2);font-weight:600">WhatsApp</span>
+        </button>
+
+        <button onclick="shareVia('telegram')" style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:8px;border-radius:12px;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+          <div style="width:52px;height:52px;border-radius:16px;background:#2AABEE;display:flex;align-items:center;justify-content:center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+          </div>
+          <span style="font-size:11px;color:var(--text2);font-weight:600">Telegram</span>
+        </button>
+
+        <button onclick="shareVia('twitter')" style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:8px;border-radius:12px;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+          <div style="width:52px;height:52px;border-radius:16px;background:#000;display:flex;align-items:center;justify-content:center">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.734l7.736-8.857-8.138-10.643h7.131l4.264 5.638zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          </div>
+          <span style="font-size:11px;color:var(--text2);font-weight:600">X (Twitter)</span>
+        </button>
+
+        <button onclick="shareVia('copy')" style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:8px;border-radius:12px;transition:background 0.15s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+          <div style="width:52px;height:52px;border-radius:16px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </div>
+          <span style="font-size:11px;color:var(--text2);font-weight:600">Copy Link</span>
+        </button>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <!-- REPORT MODAL -->
 <div class="modal-overlay" id="report-modal">
   <div class="modal" style="position:relative;max-width:420px">
@@ -2739,6 +2813,10 @@ function buildVideoCard(post, author) {
 
   return `
   <div class="video-card" id="card-${post.id}">
+    ${post.sharedFrom ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 14px 4px;font-size:12px;color:var(--text3);border-bottom:1px solid var(--surface2)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      <span><b style="color:var(--text2)">${escHtml(author.name)}</b> shared this</span>
+    </div>` : ''}
     ${thumbHtml}
     <div class="card-body">
       <div class="card-author" onclick="openUserProfile('${author.id}')" style="cursor:pointer">
@@ -2967,27 +3045,132 @@ function toggleLike(postId) {
   window.fbToggleLike('posts', String(postId), u.id, isLiked);
 }
 
-function sharePost(postId) {
-  const post = state.posts.find(p => String(p.id) === String(postId)) ||
-               state.textPosts.find(p => String(p.id) === String(postId));
-  if (!post) return;
-  // Increment share count
-  post.shares = (post.shares || 0) + 1;
+var _sharePostId = null;
 
-  // URL kopyala
-  const shareUrl = window.location.href.split('#')[0] + '#post-' + postId;
-  if (navigator.share) {
-    navigator.share({ title: post.title || 'TapTalk Post', url: shareUrl })
-      .catch(() => copyToClipboard(shareUrl));
-  } else {
-    copyToClipboard(shareUrl);
+function sharePost(postId) {
+  _sharePostId = String(postId);
+  const u = state.currentUser;
+
+  // Kendi profil bilgilerini doldur
+  const avatarEl = document.getElementById('share-my-avatar');
+  const nameEl = document.getElementById('share-my-name');
+  if (avatarEl) avatarEl.textContent = u.name[0].toUpperCase();
+  if (nameEl) nameEl.textContent = u.name;
+
+  // Arkadaş listesini doldur
+  const friendsList = document.getElementById('share-friends-list');
+  if (friendsList) {
+    const friends = (u.friends || []).slice(0, 10);
+    if (friends.length === 0) {
+      friendsList.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">No friends yet</div>';
+    } else {
+      friendsList.innerHTML = friends.map(fid => {
+        const f = state.users.find(x => x.id === fid);
+        if (!f) return '';
+        return `<div onclick="shareToFriend('${fid}')" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:64px" title="Send to ${escHtml(f.name)}">
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:20px;flex-shrink:0;border:2px solid var(--border)">${f.name[0].toUpperCase()}</div>
+          <span style="font-size:11px;color:var(--text2);font-weight:600;text-align:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name.split(' ')[0])}</span>
+        </div>`;
+      }).join('');
+    }
   }
-  showNotif('🔗 Link copied to clipboard!', 'success');
-  // Kart güncelle
-  const card = document.getElementById('card-' + postId);
-  if (card) {
-    const shareSpan = card.querySelectorAll('[style*="shares"]');
+
+  // Modal aç
+  const modal = document.getElementById('share-modal');
+  const panel = document.getElementById('share-panel');
+  modal.style.display = 'flex';
+  setTimeout(() => { if (panel) panel.style.transform = 'translateY(0)'; }, 10);
+}
+
+function closeShareModal() {
+  const panel = document.getElementById('share-panel');
+  const modal = document.getElementById('share-modal');
+  if (panel) panel.style.transform = 'translateY(100%)';
+  setTimeout(() => { if (modal) modal.style.display = 'none'; }, 300);
+}
+
+function shareToProfile() {
+  const post = state.posts.find(p => String(p.id) === _sharePostId) ||
+               state.textPosts.find(p => String(p.id) === _sharePostId);
+  if (!post) return;
+  const u = state.currentUser;
+
+  // Paylaşımı profilde yeni post olarak oluştur
+  const sharedPost = {
+    authorId: u.id,
+    type: 'shared',
+    originalPostId: _sharePostId,
+    originalAuthorId: post.authorId,
+    title: post.title,
+    mediaData: post.mediaData || null,
+    mediaType: post.mediaType || null,
+    gradient: post.gradient,
+    views: 0, likes: 0, shares: 0,
+    likedBy: {}, comments: [],
+    time: 'Just now',
+    sharedFrom: true,
+  };
+
+  window.fbPublishPost(sharedPost).then(() => {
+    // Orijinal postun share sayısını artır
+    post.shares = (post.shares || 0) + 1;
+    window.fbToggleLike && window.fbUpdateUser && null; // just trigger
+    _db && _db.collection('posts').doc(_sharePostId).update({ shares: firebase.firestore.FieldValue.increment(1) }).catch(()=>{});
+    closeShareModal();
+    showNotif('✅ Shared to your profile!', 'success');
+  });
+}
+
+function shareToFriend(friendId) {
+  const post = state.posts.find(p => String(p.id) === _sharePostId);
+  const friend = state.users.find(u => u.id === friendId);
+  if (!friend) return;
+
+  // Bildirim gönder
+  window.fbSendNotification(friendId, {
+    type: 'share',
+    message: `${state.currentUser.name} shared a post with you`,
+    postId: _sharePostId,
+    fromUserId: state.currentUser.id,
+    read: false,
+    time: Date.now()
+  });
+
+  closeShareModal();
+  showNotif(`✅ Sent to ${friend.name}!`, 'success');
+}
+
+function shareVia(platform) {
+  const post = state.posts.find(p => String(p.id) === _sharePostId) ||
+               state.textPosts.find(p => String(p.id) === _sharePostId);
+  const title = post ? post.title : 'Check this out on TapTalk!';
+  const url = window.location.origin + '/?post=' + _sharePostId;
+
+  const urls = {
+    whatsapp: `https://wa.me/?text=${encodeURIComponent(title + ' ' + url)}`,
+    telegram: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`,
+    twitter:  `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`,
+    copy: null
+  };
+
+  if (platform === 'copy') {
+    copyToClipboard(url);
+    showNotif('🔗 Link copied!', 'success');
+    closeShareModal();
+    return;
   }
+
+  if (urls[platform]) {
+    window.open(urls[platform], '_blank');
+  }
+
+  // Share sayısını artır
+  if (post) {
+    post.shares = (post.shares || 0) + 1;
+    try { _db.collection('posts').doc(_sharePostId).update({ shares: firebase.firestore.FieldValue.increment(1) }); } catch(e){}
+  }
+
+  closeShareModal();
 }
 
 function copyToClipboard(text) {
