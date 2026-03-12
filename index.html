@@ -148,7 +148,6 @@ window.loadAllData = async function() {
     snap.forEach(d => state.posts.push({ id: d.id, ...d.data() }));
     if (state.currentUser) {
       renderFeed();
-      // Profil sayfası açıksa onu da güncelle
       if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
         renderProfile();
       }
@@ -162,7 +161,9 @@ window.loadAllData = async function() {
   _db.collection('shorts').orderBy('createdAt', 'desc').limit(50).onSnapshot(snap => {
     state.shorts = [];
     snap.forEach(d => state.shorts.push({ id: d.id, ...d.data() }));
-    if (state.currentUser) renderShorts();
+    if (state.currentUser && document.getElementById('page-shorts') && document.getElementById('page-shorts').classList.contains('active')) {
+      renderShorts();
+    }
   });
   _db.collection('users').onSnapshot(snap => {
     state.users = [];
@@ -171,7 +172,6 @@ window.loadAllData = async function() {
       const me = state.users.find(u => u.id === state.currentUser.id);
       if (me) {
         Object.assign(state.currentUser, me);
-        // Profil sayfası açıksa güncelle
         if (document.getElementById('page-profile') && document.getElementById('page-profile').classList.contains('active')) {
           renderProfile();
         }
@@ -720,11 +720,20 @@ console.log('✅ Firebase hazır!');
 
   .video-thumb {
     width: 100%;
-    height: 200px;
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    max-height: 520px;
+    min-height: 160px;
+    background: #000;
     display: flex; align-items: center; justify-content: center;
     position: relative;
     overflow: hidden;
+  }
+
+  .video-thumb video, .video-thumb img {
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    background: #000;
+    display: block;
   }
 
   .thumb-gradient {
@@ -1157,7 +1166,7 @@ console.log('✅ Firebase hazır!');
     .tab { font-size: 12px; padding: 7px 4px; }
     .composer { padding: 14px; border-radius: 12px; margin-bottom: 14px; }
     .video-card { border-radius: 12px; margin-bottom: 12px; }
-    .video-thumb { height: 180px; }
+    .video-thumb { max-height: 420px; }
     .card-body { padding: 12px; }
     .card-title { font-size: 14px; }
     .card-actions { padding: 8px 12px; gap: 10px; }
@@ -2613,8 +2622,8 @@ function buildVideoCard(post, author) {
 
   const thumbHtml = post.mediaData
     ? (isImage
-        ? `<img class="video-thumb" src="${post.mediaData}" style="object-fit:cover;cursor:pointer;width:100%" onclick="openVideoPlayer('${post.id}')">`
-        : `<video class="video-thumb" src="${post.mediaData}" style="background:#000;object-fit:cover;width:100%;cursor:pointer" controls preload="metadata" playsinline></video>`)
+        ? `<div class="video-thumb" style="background:#000"><img src="${post.mediaData}" style="width:100%;max-height:520px;object-fit:contain;display:block;cursor:pointer" onclick="openVideoPlayer('${post.id}')"></div>`
+        : `<div class="video-thumb" style="background:#000"><video src="${post.mediaData}" style="width:100%;max-height:520px;object-fit:contain;display:block;cursor:pointer" controls preload="metadata" playsinline></video></div>`)
     : `<div class="video-thumb" style="background:${post.gradient};cursor:pointer" onclick="openVideoPlayer('${post.id}')"><div class="play-btn">▶</div></div>`;
 
   return `
@@ -4194,7 +4203,8 @@ function showPage(name) {
   if (name === 'stats') renderStats();
   if (name === 'friends') renderFriendsPage();
   if (name === 'requests') renderRequestsPage();
-}
+  if (name === 'home' || name === 'feed') renderFeed();
+  if (name === 'shorts') renderShorts();
 
 // ═══════════════════════════════════════
 //  USER PROFILE MODAL (view any profile)
